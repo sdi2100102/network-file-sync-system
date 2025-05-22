@@ -1,0 +1,7 @@
+*.o
+*.txt
+*~
+.vscode
+fss_manager
+fss_worker
+fss_console
