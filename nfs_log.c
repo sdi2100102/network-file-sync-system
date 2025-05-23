@@ -6,7 +6,7 @@
 #include <errno.h>
 #include <unistd.h>
 
-#include "fss_log.h"
+#include "nfs_log.h"
 #include "utils.h"
 
 void time_message(const char message[], char output[], size_t output_size)

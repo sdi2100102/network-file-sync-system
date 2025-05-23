@@ -14,11 +14,11 @@
 #include <limits.h>
 
 #include "utils.h"
-#include "fss_log.h"
+#include "nfs_log.h"
 #include "operation_queue.h"
 #include "sync_info_mem_store.h"
 #include "command.h"
-#include "fss_log.h"
+#include "nfs_log.h"
 #include "exec_report.h"
 #include "worker_list.h"
 
@@ -27,9 +27,9 @@
 #define WRITE 1
 #define DEFAULT_WORKER_LIMIT 5
 #define DEFAULT_WORKER_BUFFER_SIZE 10
-#define WORKER_PATH "fss_worker"
-#define FSS_IN_PATH "fss_in"
-#define FSS_OUT_PATH "fss_out"
+#define WORKER_PATH "nfs_worker"
+#define nfs_IN_PATH "nfs_in"
+#define nfs_OUT_PATH "nfs_out"
 
 volatile sig_atomic_t got_sigchld = 0; // used by SIGCHLD handler
 
@@ -43,7 +43,7 @@ typedef struct
     OperationQueue operation_queue;
     int inotify_fd;
     struct sigaction sa;
-    int fss_in, fss_out;
+    int nfs_in, nfs_out;
     char command_string[BUF_SIZE];
     Command command;
     int shutdown;
@@ -61,10 +61,10 @@ void close_manager(ManagerInfo *manager_info);
 void manager(int argc, char *argv[]);
 void read_arguments(int argc, char *argv[], ManagerInfo *manager_info);
 void read_config(ManagerInfo *manager_info);
-void fss_add(ManagerInfo *manager_info, SyncInfo sync_info);
-void fss_sync(ManagerInfo *manager_info, SyncInfo sync_info);
-void fss_status(ManagerInfo *manager_info, SyncInfo sync_info);
-void fss_cancel(ManagerInfo *manager_info, SyncInfo sync_info);
+void nfs_add(ManagerInfo *manager_info, SyncInfo sync_info);
+void nfs_sync(ManagerInfo *manager_info, SyncInfo sync_info);
+void nfs_status(ManagerInfo *manager_info, SyncInfo sync_info);
+void nfs_cancel(ManagerInfo *manager_info, SyncInfo sync_info);
 void execute_operation(ManagerInfo *manager_info, OperationInfo operation_info);
 void check_changes(ManagerInfo *manager_info);
 void apply_changes(ManagerInfo *manager_info, struct inotify_event *event, SyncInfo sync_info);
@@ -73,11 +73,11 @@ void execute_queued_operations(ManagerInfo *manager_info);
 void sigaction_init(ManagerInfo *manager_info);
 void sigchld_handler(int sig);
 void check_commands(ManagerInfo *manager_info);
-void fss_in_init(ManagerInfo *manager_info);
-void fss_in_read(ManagerInfo *manager_info);
-void fss_in_close(ManagerInfo *manager_info);
-void fss_out_init(ManagerInfo *manager_info);
-void fss_out_close(ManagerInfo *manager_info);
+void nfs_in_init(ManagerInfo *manager_info);
+void nfs_in_read(ManagerInfo *manager_info);
+void nfs_in_close(ManagerInfo *manager_info);
+void nfs_out_init(ManagerInfo *manager_info);
+void nfs_out_close(ManagerInfo *manager_info);
 void execute_command(ManagerInfo *manager_info);
 void collect_workers(ManagerInfo *manager_info);
 void update_sync_info(ManagerInfo *manager_info, char *source_dir, ExecReport);
@@ -112,8 +112,8 @@ ManagerInfo *manager_init(int argc, char *argv[])
     if ((manager_info->logfile_fd = open(manager_info->logfile_path, O_CREAT | O_WRONLY | O_TRUNC, 0777)) == -1)
         perror_exit("open logfile");
 
-    fss_in_init(manager_info);
-    fss_out_init(manager_info);
+    nfs_in_init(manager_info);
+    nfs_out_init(manager_info);
 
     read_config(manager_info);
 
@@ -148,14 +148,14 @@ void close_manager(ManagerInfo *manager_info)
     char message[BUF_SIZE];
     strcpy(message, "Waiting for all active worker_list to finish.\n");
     log_timed_stdout(message);
-    log_timed_fd(message, manager_info->fss_out);
+    log_timed_fd(message, manager_info->nfs_out);
 
     while (wait(&status) > 0) // wait for all active worker_list
         ;
 
     strcpy(message, "Processing remaining queued tasks.\n");
     log_timed_stdout(message);
-    log_timed_fd(message, manager_info->fss_out);
+    log_timed_fd(message, manager_info->nfs_out);
 
     while (execute_next_operation(manager_info) >= 0) // empty operation queue
         ;
@@ -173,11 +173,11 @@ void close_manager(ManagerInfo *manager_info)
 
     strcpy(message, "Manager shutdown complete.\n");
     log_timed_stdout(message);
-    log_timed_fd(message, manager_info->fss_out);
-    log_end_message(manager_info->fss_out);
+    log_timed_fd(message, manager_info->nfs_out);
+    log_end_message(manager_info->nfs_out);
 
-    fss_in_close(manager_info);
-    fss_out_close(manager_info);
+    nfs_in_close(manager_info);
+    nfs_out_close(manager_info);
     cmd_free(manager_info->command);
     if (close(manager_info->logfile_fd) == -1)
         perror_exit("close logfile");
@@ -226,7 +226,7 @@ void read_config(ManagerInfo *manager_info)
     sync_info.from_config = 1;
     while (fscanf(manager_info->config_file, "%s %s", sync_info.source_dir, sync_info.target_dir) == 2) // read config entries
     {
-        fss_add(manager_info, sync_info);
+        nfs_add(manager_info, sync_info);
     }
 
     if (ferror(manager_info->config_file))
@@ -236,7 +236,7 @@ void read_config(ManagerInfo *manager_info)
         perror_exit("fclose manager config");
 }
 
-void fss_add(ManagerInfo *manager_info, SyncInfo sync_info)
+void nfs_add(ManagerInfo *manager_info, SyncInfo sync_info)
 {
     char message[BUF_SIZE];
     if (sims_exists(manager_info->sync_info_mem_store, sync_info)) // directory already monitored
@@ -245,8 +245,8 @@ void fss_add(ManagerInfo *manager_info, SyncInfo sync_info)
         snprintf(message, sizeof(message), "Already in queue: %.*s\n",
                  (int)strlen(sync_info.source_dir), sync_info.source_dir);
         log_timed_stdout(message);
-        log_timed_fd(message, manager_info->fss_out);
-        log_end_message(manager_info->fss_out);
+        log_timed_fd(message, manager_info->nfs_out);
+        log_end_message(manager_info->nfs_out);
         return;
     }
 
@@ -269,14 +269,14 @@ void fss_add(ManagerInfo *manager_info, SyncInfo sync_info)
     OperationInfo operation_info = {sync_info, "ALL", "FULL"};
     opq_add(manager_info->operation_queue, operation_info);
 
-    /* log to stdout, logfile and fss_out */
+    /* log to stdout, logfile and nfs_out */
     snprintf(message, sizeof(message), "Added directory: %.*s -> %.*s\n",
              (int)strlen(sync_info.source_dir), sync_info.source_dir,
              (int)strlen(sync_info.target_dir), sync_info.target_dir);
     log_timed_stdout(message);
     log_timed_fd(message, manager_info->logfile_fd);
     if (!sync_info.from_config)
-        log_timed_fd(message, manager_info->fss_out); // only send to console if not added from config
+        log_timed_fd(message, manager_info->nfs_out); // only send to console if not added from config
 
     snprintf(message, sizeof(message), "Monitoring started for %.*s\n",
              (int)strlen(sync_info.source_dir), sync_info.source_dir);
@@ -284,18 +284,18 @@ void fss_add(ManagerInfo *manager_info, SyncInfo sync_info)
     log_timed_fd(message, manager_info->logfile_fd);
     if (!sync_info.from_config)
     {
-        log_timed_fd(message, manager_info->fss_out);
-        log_end_message(manager_info->fss_out);
+        log_timed_fd(message, manager_info->nfs_out);
+        log_end_message(manager_info->nfs_out);
     }
 }
 
-void fss_sync(ManagerInfo *manager_info, SyncInfo sync_info)
+void nfs_sync(ManagerInfo *manager_info, SyncInfo sync_info)
 {
     char message[BUF_SIZE];
 
     if (sims_find(manager_info->sync_info_mem_store, sync_info.source_dir, &sync_info) == -1)
     {
-        log_end_message(manager_info->fss_out);
+        log_end_message(manager_info->nfs_out);
         return; // directory not monitored
     }
 
@@ -304,8 +304,8 @@ void fss_sync(ManagerInfo *manager_info, SyncInfo sync_info)
         snprintf(message, sizeof(message), "Sync already in progress: %.*s\n",
                  (int)strlen(sync_info.source_dir), sync_info.source_dir);
         log_timed_stdout(message);
-        log_timed_fd(message, manager_info->fss_out);
-        log_end_message(manager_info->fss_out);
+        log_timed_fd(message, manager_info->nfs_out);
+        log_end_message(manager_info->nfs_out);
         return; // directory already in queue
     }
 
@@ -315,7 +315,7 @@ void fss_sync(ManagerInfo *manager_info, SyncInfo sync_info)
              (int)strlen(sync_info.target_dir), sync_info.target_dir);
     log_timed_stdout(message);
     log_timed_fd(message, manager_info->logfile_fd);
-    log_timed_fd(message, manager_info->fss_out);
+    log_timed_fd(message, manager_info->nfs_out);
 
     OperationInfo operation_info = {sync_info, "ALL", "FULL"};
     opq_add(manager_info->operation_queue, operation_info); // sync directory
@@ -326,11 +326,11 @@ void fss_sync(ManagerInfo *manager_info, SyncInfo sync_info)
              (int)strlen(sync_info.target_dir), sync_info.target_dir);
     log_timed_stdout(message);
     log_timed_fd(message, manager_info->logfile_fd);
-    log_timed_fd(message, manager_info->fss_out);
-    log_end_message(manager_info->fss_out);
+    log_timed_fd(message, manager_info->nfs_out);
+    log_end_message(manager_info->nfs_out);
 }
 
-void fss_status(ManagerInfo *manager_info, SyncInfo sync_info)
+void nfs_status(ManagerInfo *manager_info, SyncInfo sync_info)
 {
     char message[BUF_SIZE];
     if (sims_find(manager_info->sync_info_mem_store, sync_info.source_dir, &sync_info) == -1)
@@ -339,8 +339,8 @@ void fss_status(ManagerInfo *manager_info, SyncInfo sync_info)
         snprintf(message, sizeof(message), "Directory not monitored: %.*s\n",
                  (int)strlen(sync_info.source_dir), sync_info.source_dir);
         log_timed_stdout(message);
-        log_timed_fd(message, manager_info->fss_out);
-        log_end_message(manager_info->fss_out);
+        log_timed_fd(message, manager_info->nfs_out);
+        log_end_message(manager_info->nfs_out);
         return;
     }
 
@@ -358,11 +358,11 @@ void fss_status(ManagerInfo *manager_info, SyncInfo sync_info)
              sync_info.error_num,
              (sync_info.status == 1) ? "Active" : "Inactive");
     log_timed_stdout(message);
-    log_timed_fd(message, manager_info->fss_out);
-    log_end_message(manager_info->fss_out);
+    log_timed_fd(message, manager_info->nfs_out);
+    log_end_message(manager_info->nfs_out);
 }
 
-void fss_cancel(ManagerInfo *manager_info, SyncInfo sync_info)
+void nfs_cancel(ManagerInfo *manager_info, SyncInfo sync_info)
 {
     char message[BUF_SIZE];
     if (sims_find(manager_info->sync_info_mem_store, sync_info.source_dir, &sync_info) == -1)
@@ -371,8 +371,8 @@ void fss_cancel(ManagerInfo *manager_info, SyncInfo sync_info)
         snprintf(message, sizeof(message), "Directory not monitored: %.*s\n",
                  (int)strlen(sync_info.source_dir), sync_info.source_dir);
         log_timed_stdout(message);
-        log_timed_fd(message, manager_info->fss_out);
-        log_end_message(manager_info->fss_out);
+        log_timed_fd(message, manager_info->nfs_out);
+        log_end_message(manager_info->nfs_out);
         return;
     }
 
@@ -381,13 +381,13 @@ void fss_cancel(ManagerInfo *manager_info, SyncInfo sync_info)
     if (inotify_rm_watch(manager_info->inotify_fd, sync_info.inotify_wd) == -1)
         perror_exit("inotify_rm_watch cancel");
 
-    /* log to stdout, logfile and fss_out */
+    /* log to stdout, logfile and nfs_out */
     snprintf(message, sizeof(message), "Monitoring stopped for %.*s\n",
              (int)strlen(sync_info.source_dir), sync_info.source_dir);
     log_timed_stdout(message);
     log_timed_fd(message, manager_info->logfile_fd);
-    log_timed_fd(message, manager_info->fss_out);
-    log_end_message(manager_info->fss_out);
+    log_timed_fd(message, manager_info->nfs_out);
+    log_end_message(manager_info->nfs_out);
 }
 
 void execute_operation(ManagerInfo *manager_info, OperationInfo operation_info)
@@ -509,7 +509,7 @@ void sigchld_handler(int sig)
 void check_commands(ManagerInfo *manager_info)
 {
     manager_info->command_string[0] = '\0'; // reset previous command
-    fss_in_read(manager_info);
+    nfs_in_read(manager_info);
 
     char command_string_temp[BUF_SIZE]; // don't change manager command string
     strcpy(command_string_temp, manager_info->command_string);
@@ -524,19 +524,19 @@ void check_commands(ManagerInfo *manager_info)
     }
 }
 
-void fss_in_init(ManagerInfo *manager_info)
+void nfs_in_init(ManagerInfo *manager_info)
 {
-    if (mkfifo(FSS_IN_PATH, 0666) == -1)
+    if (mkfifo(nfs_IN_PATH, 0666) == -1)
         if (errno != EEXIST)
-            perror_exit("mkfifo fss_in");
+            perror_exit("mkfifo nfs_in");
 
-    if ((manager_info->fss_in = open(FSS_IN_PATH, O_RDONLY | O_NONBLOCK)) < 0)
-        perror_exit("open fss_in");
+    if ((manager_info->nfs_in = open(nfs_IN_PATH, O_RDONLY | O_NONBLOCK)) < 0)
+        perror_exit("open nfs_in");
 }
 
-void fss_in_read(ManagerInfo *manager_info)
+void nfs_in_read(ManagerInfo *manager_info)
 {
-    ssize_t bytes_read = read(manager_info->fss_in, manager_info->command_string, sizeof(manager_info->command_string) - 1);
+    ssize_t bytes_read = read(manager_info->nfs_in, manager_info->command_string, sizeof(manager_info->command_string) - 1);
     if (bytes_read == -1)
         if (errno == EAGAIN || errno == EWOULDBLOCK)
         {
@@ -544,16 +544,16 @@ void fss_in_read(ManagerInfo *manager_info)
         }
         else
         {
-            perror_exit("read fss_in");
+            perror_exit("read nfs_in");
         }
 
     manager_info->command_string[bytes_read] = '\0';
 }
 
-void fss_in_close(ManagerInfo *manager_info)
+void nfs_in_close(ManagerInfo *manager_info)
 {
-    if (close(manager_info->fss_in) == -1)
-        perror_exit("close fss_in");
+    if (close(manager_info->nfs_in) == -1)
+        perror_exit("close nfs_in");
 }
 
 void execute_command(ManagerInfo *manager_info)
@@ -566,24 +566,24 @@ void execute_command(ManagerInfo *manager_info)
     case ADD:
         strcpy(sync_info.source_dir, manager_info->command.arguments[1]);
         strcpy(sync_info.target_dir, manager_info->command.arguments[2]);
-        fss_add(manager_info, sync_info);
+        nfs_add(manager_info, sync_info);
         break;
     case STATUS:
         strcpy(sync_info.source_dir, manager_info->command.arguments[1]);
-        fss_status(manager_info, sync_info);
+        nfs_status(manager_info, sync_info);
         break;
     case CANCEL:
         strcpy(sync_info.source_dir, manager_info->command.arguments[1]);
-        fss_cancel(manager_info, sync_info);
+        nfs_cancel(manager_info, sync_info);
         break;
     case SYNC:
         strcpy(sync_info.source_dir, manager_info->command.arguments[1]);
-        fss_sync(manager_info, sync_info);
+        nfs_sync(manager_info, sync_info);
         break;
     case SHUTDOWN:
         strcpy(message, "Shutting down manager...\n");
         log_timed_stdout(message);
-        log_timed_fd(message, manager_info->fss_out);
+        log_timed_fd(message, manager_info->nfs_out);
         manager_info->shutdown = 1;
         break;
     default:
@@ -591,20 +591,20 @@ void execute_command(ManagerInfo *manager_info)
     }
 }
 
-void fss_out_init(ManagerInfo *manager_info)
+void nfs_out_init(ManagerInfo *manager_info)
 {
-    if (mkfifo(FSS_OUT_PATH, 0666) == -1)
+    if (mkfifo(nfs_OUT_PATH, 0666) == -1)
         if (errno != EEXIST)
-            perror_exit("mkfifo fss_out");
+            perror_exit("mkfifo nfs_out");
 
-    if ((manager_info->fss_out = open(FSS_OUT_PATH, O_WRONLY | O_CREAT | O_TRUNC, 0644)) < 0)
-        perror_exit("open fss_out");
+    if ((manager_info->nfs_out = open(nfs_OUT_PATH, O_WRONLY | O_CREAT | O_TRUNC, 0644)) < 0)
+        perror_exit("open nfs_out");
 }
 
-void fss_out_close(ManagerInfo *manager_info)
+void nfs_out_close(ManagerInfo *manager_info)
 {
-    if (close(manager_info->fss_out) == -1)
-        perror_exit("close fss_out");
+    if (close(manager_info->nfs_out) == -1)
+        perror_exit("close nfs_out");
 }
 
 void collect_workers(ManagerInfo *manager_info)

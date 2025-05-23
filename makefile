@@ -4,15 +4,15 @@ CFLAGS = -g
 
 LDFLAGS +=
 
-all: fss_manager fss_worker fss_console
+all: nfs_manager nfs_worker nfs_console
 
-MANAGER = fss_manager
-WORKER = fss_worker
-CONSOLE = fss_console
+MANAGER = nfs_manager
+WORKER = nfs_worker
+CONSOLE = nfs_console
 
-MANAGER_OBJS = fss_manager.o utils.o fss_log.o sync_info_mem_store.o operation_queue.o command.o worker_list.o
-WORKER_OBJS = fss_worker.o exec_report.o utils.o
-CONSOLE_OBJS = fss_console.o utils.o fss_log.o command.o
+MANAGER_OBJS = nfs_manager.o utils.o nfs_log.o sync_info_mem_store.o operation_queue.o command.o worker_list.o
+WORKER_OBJS = nfs_worker.o exec_report.o utils.o
+CONSOLE_OBJS = nfs_console.o utils.o nfs_log.o command.o
 
 $(MANAGER): $(MANAGER_OBJS)
 	$(CC) $(CFLAGS) $(MANAGER_OBJS) $(LDFLAGS) -o $(MANAGER)

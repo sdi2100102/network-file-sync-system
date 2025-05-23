@@ -6,13 +6,13 @@
 #include <unistd.h>
 #include <time.h>
 #include <poll.h>
-#include "fss_log.h"
+#include "nfs_log.h"
 #include "utils.h"
 #include "command.h"
 
 #define BUF_SIZE 1024
-#define FSS_IN_PATH "fss_in"
-#define FSS_OUT_PATH "fss_out"
+#define nfs_IN_PATH "nfs_in"
+#define nfs_OUT_PATH "nfs_out"
 
 typedef struct
 {
@@ -20,7 +20,7 @@ typedef struct
     int logfile_fd;
     Command command;
     char command_string[BUF_SIZE];
-    int fss_in, fss_out;
+    int nfs_in, nfs_out;
     char response[BUF_SIZE];
     int host_ip, host_port;
 } ConsoleInfo;
@@ -30,12 +30,12 @@ void console_init(int argc, char *argv[]);
 void console_run();
 void console_close();
 void read_arguments(int argc, char *argv[]);
-void fss_in_init();
-void fss_out_init();
-void fss_in_close();
-void fss_out_close();
-void fss_in_send(char *message);
-void fss_out_read();
+void nfs_in_init();
+void nfs_out_init();
+void nfs_in_close();
+void nfs_out_close();
+void nfs_in_send(char *message);
+void nfs_out_read();
 
 int main(int argc, char *argv[])
 {
@@ -54,8 +54,8 @@ void console_init(int argc, char *argv[])
     if ((console.logfile_fd = open(console.logfile_path, O_CREAT | O_WRONLY | O_TRUNC, 0777)) == -1)
         perror_exit("open logfile");
 
-    fss_in_init();
-    fss_out_init();
+    nfs_in_init();
+    nfs_out_init();
 }
 
 void console_run()
@@ -73,14 +73,14 @@ void console_run()
         if (console.command.type == UKNOWN)
             continue;
 
-        fss_in_send(console.command_string);
+        nfs_in_send(console.command_string);
 
         /* log command */
         char message[BUF_SIZE];
         snprintf(message, sizeof(message), "Command %.*s\n", (int)strlen(console.command_string), console.command_string);
         log_timed_fd(message, console.logfile_fd);
 
-        fss_out_read();
+        nfs_out_read();
 
         if (console.command.type == SHUTDOWN)
             break;
@@ -92,8 +92,8 @@ void console_close()
     if (close(console.logfile_fd) == -1)
         perror_exit("close logfile");
 
-    fss_in_close();
-    fss_out_close();
+    nfs_in_close();
+    nfs_out_close();
 
     cmd_free(console.command);
 }
@@ -106,8 +106,8 @@ void read_arguments(int argc, char *argv[])
         !strcmp(argv[5], "-p"))
     {
         strcpy(console.logfile_path, argv[2]);
-        strcpy(console.host_ip, atoi(argv[4]));
-        strcpy(console.host_port, atoi(argv[6]));
+        console.host_ip=atoi(argv[4]);
+        console.host_port=atoi(argv[6]);
     }
     else
     {
@@ -116,44 +116,44 @@ void read_arguments(int argc, char *argv[])
     }
 }
 
-void fss_in_init()
+void nfs_in_init()
 {
-    if ((console.fss_in = open(FSS_IN_PATH, O_WRONLY)) < 0)
-        perror_exit("open fss_in");
+    if ((console.nfs_in = open(nfs_IN_PATH, O_WRONLY)) < 0)
+        perror_exit("open nfs_in");
 }
 
-void fss_out_init()
+void nfs_out_init()
 {
-    if ((console.fss_out = open(FSS_OUT_PATH, O_RDONLY)) < 0)
-        perror_exit("open fss_out");
+    if ((console.nfs_out = open(nfs_OUT_PATH, O_RDONLY)) < 0)
+        perror_exit("open nfs_out");
 }
 
-void fss_in_close()
+void nfs_in_close()
 {
-    if (close(console.fss_in) == -1)
-        perror_exit("close fss_in");
+    if (close(console.nfs_in) == -1)
+        perror_exit("close nfs_in");
 }
 
-void fss_out_close()
+void nfs_out_close()
 {
-    if (close(console.fss_out) == -1)
-        perror_exit("close fss_out");
+    if (close(console.nfs_out) == -1)
+        perror_exit("close nfs_out");
 }
 
-void fss_in_send(char *message)
+void nfs_in_send(char *message)
 {
-    if (write(console.fss_in, message, strlen(message)) == -1)
-        perror_exit("write fss_in");
+    if (write(console.nfs_in, message, strlen(message)) == -1)
+        perror_exit("write nfs_in");
 }
 
-void fss_out_read()
+void nfs_out_read()
 {
     char buffer[BUF_SIZE];
     while (1)
     {
-        ssize_t n = read(console.fss_out, buffer, sizeof(buffer) - 1);
+        ssize_t n = read(console.nfs_out, buffer, sizeof(buffer) - 1);
         if (n < 0)
-            perror_exit("read fss_out");
+            perror_exit("read nfs_out");
         if (n == 0)
             break;
         buffer[n] = '\0';
