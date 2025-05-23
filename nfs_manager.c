@@ -33,8 +33,6 @@
 #define DEFAULT_WORKER_LIMIT 5
 #define DEFAULT_WORKER_BUFFER_SIZE 10
 #define WORKER_PATH "nfs_worker"
-#define nfs_IN_PATH "nfs_in"
-#define nfs_OUT_PATH "nfs_out"
 
 volatile sig_atomic_t got_sigchld = 0; // used by SIGCHLD handler
 
@@ -48,7 +46,6 @@ typedef struct
     OperationQueue operation_queue;
     int inotify_fd;
     struct sigaction sa;
-    int nfs_in, nfs_out;
     char command_string[BUF_SIZE];
     Command command;
     int shutdown;
@@ -79,11 +76,6 @@ void execute_queued_operations(ManagerInfo *manager_info);
 void sigaction_init(ManagerInfo *manager_info);
 void sigchld_handler(int sig);
 void check_commands(ManagerInfo *manager_info);
-void nfs_in_init(ManagerInfo *manager_info);
-void nfs_in_read(ManagerInfo *manager_info);
-void nfs_in_close(ManagerInfo *manager_info);
-void nfs_out_init(ManagerInfo *manager_info);
-void nfs_out_close(ManagerInfo *manager_info);
 void execute_command(ManagerInfo *manager_info);
 void collect_workers(ManagerInfo *manager_info);
 void update_sync_info(ManagerInfo *manager_info, char *source_dir, ExecReport);
@@ -119,9 +111,6 @@ ManagerInfo *manager_init(int argc, char *argv[])
 
     if ((manager_info->logfile_fd = open(manager_info->logfile_path, O_CREAT | O_WRONLY | O_TRUNC, 0777)) == -1)
         perror_exit("open logfile");
-
-    nfs_in_init(manager_info);
-    nfs_out_init(manager_info);
 
     manager_info->console_socket = server_socket_init(manager_info->console_port_number);
 
@@ -185,9 +174,6 @@ void close_manager(ManagerInfo *manager_info)
     log_timed_stdout(message);
     log_timed_fd(message, manager_info->console_socket);
     log_end_message(manager_info->console_socket);
-
-    nfs_in_close(manager_info);
-    nfs_out_close(manager_info);
 
     close(manager_info->console_socket);
 
@@ -282,7 +268,7 @@ void nfs_add(ManagerInfo *manager_info, SyncInfo sync_info)
     OperationInfo operation_info = {sync_info, "ALL", "FULL"};
     opq_add(manager_info->operation_queue, operation_info);
 
-    /* log to stdout, logfile and nfs_out */
+    /* log to stdout, logfile and console */
     snprintf(message, sizeof(message), "Added directory: %.*s -> %.*s\n",
              (int)strlen(sync_info.source_dir), sync_info.source_dir,
              (int)strlen(sync_info.target_dir), sync_info.target_dir);
@@ -394,7 +380,7 @@ void nfs_cancel(ManagerInfo *manager_info, SyncInfo sync_info)
     if (inotify_rm_watch(manager_info->inotify_fd, sync_info.inotify_wd) == -1)
         perror_exit("inotify_rm_watch cancel");
 
-    /* log to stdout, logfile and nfs_out */
+    /* log to stdout, logfile and console */
     snprintf(message, sizeof(message), "Monitoring stopped for %.*s\n",
              (int)strlen(sync_info.source_dir), sync_info.source_dir);
     log_timed_stdout(message);
@@ -522,7 +508,6 @@ void sigchld_handler(int sig)
 void check_commands(ManagerInfo *manager_info)
 {
     manager_info->command_string[0] = '\0'; // reset previous command
-    // nfs_in_read(manager_info);
 
     console_remote_read(manager_info);
 
@@ -537,38 +522,6 @@ void check_commands(ManagerInfo *manager_info)
         snprintf(message, sizeof(message), "Command %.*s\n", (int)strlen(manager_info->command_string), manager_info->command_string);
         log_timed_fd(message, manager_info->logfile_fd); // log command to log file
     }
-}
-
-void nfs_in_init(ManagerInfo *manager_info)
-{
-    if (mkfifo(nfs_IN_PATH, 0666) == -1)
-        if (errno != EEXIST)
-            perror_exit("mkfifo nfs_in");
-
-    if ((manager_info->nfs_in = open(nfs_IN_PATH, O_RDONLY | O_NONBLOCK)) < 0)
-        perror_exit("open nfs_in");
-}
-
-void nfs_in_read(ManagerInfo *manager_info)
-{
-    ssize_t bytes_read = read(manager_info->nfs_in, manager_info->command_string, sizeof(manager_info->command_string) - 1);
-    if (bytes_read == -1)
-        if (errno == EAGAIN || errno == EWOULDBLOCK)
-        {
-            return; // no data available
-        }
-        else
-        {
-            perror_exit("read nfs_in");
-        }
-
-    manager_info->command_string[bytes_read] = '\0';
-}
-
-void nfs_in_close(ManagerInfo *manager_info)
-{
-    if (close(manager_info->nfs_in) == -1)
-        perror_exit("close nfs_in");
 }
 
 void execute_command(ManagerInfo *manager_info)
@@ -604,22 +557,6 @@ void execute_command(ManagerInfo *manager_info)
     default:
         break;
     }
-}
-
-void nfs_out_init(ManagerInfo *manager_info)
-{
-    if (mkfifo(nfs_OUT_PATH, 0666) == -1)
-        if (errno != EEXIST)
-            perror_exit("mkfifo nfs_out");
-
-    if ((manager_info->nfs_out = open(nfs_OUT_PATH, O_WRONLY | O_CREAT | O_TRUNC, 0644)) < 0)
-        perror_exit("open nfs_out");
-}
-
-void nfs_out_close(ManagerInfo *manager_info)
-{
-    if (close(manager_info->nfs_out) == -1)
-        perror_exit("close nfs_out");
 }
 
 void collect_workers(ManagerInfo *manager_info)

@@ -16,8 +16,6 @@
 #include <arpa/inet.h>
 
 #define BUF_SIZE 1024
-#define nfs_IN_PATH "nfs_in"
-#define nfs_OUT_PATH "nfs_out"
 
 typedef struct
 {
@@ -25,7 +23,6 @@ typedef struct
     int logfile_fd;
     Command command;
     char command_string[BUF_SIZE];
-    int nfs_in, nfs_out;
     char response[BUF_SIZE];
     int manager_port;
     char manager_ip[INET_ADDRSTRLEN];
@@ -37,12 +34,6 @@ void console_init(int argc, char *argv[]);
 void console_run();
 void console_close();
 void read_arguments(int argc, char *argv[]);
-void nfs_in_init();
-void nfs_out_init();
-void nfs_in_close();
-void nfs_out_close();
-void nfs_in_send(char *message);
-void nfs_out_read();
 int client_socket_init(const char *server_ip, int server_port);
 void manager_remote_read();
 
@@ -62,9 +53,6 @@ void console_init(int argc, char *argv[])
     /* Open log file */
     if ((console.logfile_fd = open(console.logfile_path, O_CREAT | O_WRONLY | O_TRUNC, 0777)) == -1)
         perror_exit("open logfile");
-
-    nfs_in_init();
-    nfs_out_init();
 
     console.manager_socket = client_socket_init(console.manager_ip, console.manager_port);
 }
@@ -105,9 +93,6 @@ void console_close()
     if (close(console.logfile_fd) == -1)
         perror_exit("close logfile");
 
-    nfs_in_close();
-    nfs_out_close();
-
     close(console.manager_socket);
 
     cmd_free(console.command);
@@ -128,59 +113,6 @@ void read_arguments(int argc, char *argv[])
     {
         fprintf(stderr, "Usage: %s -l <console-logfile> -h <host_ip> -p <host_port>\n", argv[0]);
         exit(EXIT_FAILURE);
-    }
-}
-
-void nfs_in_init()
-{
-    if ((console.nfs_in = open(nfs_IN_PATH, O_WRONLY)) < 0)
-        perror_exit("open nfs_in");
-}
-
-void nfs_out_init()
-{
-    if ((console.nfs_out = open(nfs_OUT_PATH, O_RDONLY)) < 0)
-        perror_exit("open nfs_out");
-}
-
-void nfs_in_close()
-{
-    if (close(console.nfs_in) == -1)
-        perror_exit("close nfs_in");
-}
-
-void nfs_out_close()
-{
-    if (close(console.nfs_out) == -1)
-        perror_exit("close nfs_out");
-}
-
-void nfs_in_send(char *message)
-{
-    if (write(console.nfs_in, message, strlen(message)) == -1)
-        perror_exit("write nfs_in");
-}
-
-void nfs_out_read()
-{
-    char buffer[BUF_SIZE];
-    while (1)
-    {
-        ssize_t n = read(console.nfs_out, buffer, sizeof(buffer) - 1);
-        if (n < 0)
-            perror_exit("read nfs_out");
-        if (n == 0)
-            break;
-        buffer[n] = '\0';
-
-        if (strstr(buffer, END_OF_MESSAGE) != NULL)
-        {
-            *strstr(buffer, END_OF_MESSAGE) = '\0'; // remove END_OF_MESSAGE marker
-            printf("%s", buffer);
-            break;
-        }
-        log_untimed_fd(buffer, console.logfile_fd);
-        printf("%s", buffer);
     }
 }
 
