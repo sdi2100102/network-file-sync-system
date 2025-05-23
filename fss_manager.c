@@ -26,6 +26,7 @@
 #define READ 0
 #define WRITE 1
 #define DEFAULT_WORKER_LIMIT 5
+#define DEFAULT_WORKER_BUFFER_SIZE 10
 #define WORKER_PATH "fss_worker"
 #define FSS_IN_PATH "fss_in"
 #define FSS_OUT_PATH "fss_out"
@@ -50,6 +51,8 @@ typedef struct
     int worker_pipes_fd[2];
     int active_workers;
     WorkerList worker_list;
+    int console_port_number;
+    int worker_buffer_size;
 } ManagerInfo;
 
 ManagerInfo *manager_init(int argc, char *argv[]);
@@ -183,13 +186,12 @@ void close_manager(ManagerInfo *manager_info)
 
 void read_arguments(int argc, char *argv[], ManagerInfo *manager_info)
 {
-    if (argc == 5 && !strcmp(argv[1], "-l") && !strcmp(argv[3], "-c")) // no worker limit given
-    {
-        strcpy(manager_info->logfile_path, argv[2]);
-        strcpy(manager_info->config_file_path, argv[4]);
-        manager_info->worker_limit = DEFAULT_WORKER_LIMIT;
-    }
-    else if (argc == 7 && !strcmp(argv[1], "-l") && !strcmp(argv[3], "-c") && !strcmp(argv[5], "-n")) // worker limit given
+    if (argc == 11 &&
+        !strcmp(argv[1], "-l") &&
+        !strcmp(argv[3], "-c") &&
+        !strcmp(argv[5], "-n") &&
+        !strcmp(argv[7], "-p") &&
+        !strcmp(argv[9], "-b"))
     {
         strcpy(manager_info->logfile_path, argv[2]);
         strcpy(manager_info->config_file_path, argv[4]);
@@ -198,10 +200,18 @@ void read_arguments(int argc, char *argv[], ManagerInfo *manager_info)
             manager_info->worker_limit = DEFAULT_WORKER_LIMIT;
         else
             manager_info->worker_limit = worker_limit;
+
+        manager_info->console_port_number = atoi(argv[7]);
+
+        int buffer_size = atoi(argv[9]);
+        if (buffer_size > 0)
+            manager_info->worker_buffer_size = buffer_size;
+        else
+            manager_info->worker_buffer_size = DEFAULT_WORKER_BUFFER_SIZE;
     }
     else
     {
-        fprintf(stderr, "Usage: %s -l <manager_logfile> -c <manager_info->config_file> [-n <worker_limit>]\n", argv[0]);
+        fprintf(stderr, "Usage: %s -l <manager_logfile> -c <manager_info->config_file> -n <worker_limit> -p <port_number> -b <bufferSize>\n", argv[0]);
         exit(EXIT_FAILURE);
     }
 }

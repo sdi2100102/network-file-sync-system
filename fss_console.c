@@ -22,6 +22,7 @@ typedef struct
     char command_string[BUF_SIZE];
     int fss_in, fss_out;
     char response[BUF_SIZE];
+    int host_ip, host_port;
 } ConsoleInfo;
 ConsoleInfo console;
 
@@ -99,11 +100,18 @@ void console_close()
 
 void read_arguments(int argc, char *argv[])
 {
-    if (argc == 3 && !strcmp(argv[1], "-l"))
+    if (argc == 7 &&
+        !strcmp(argv[1], "-l") &&
+        !strcmp(argv[3], "-h") &&
+        !strcmp(argv[5], "-p"))
+    {
         strcpy(console.logfile_path, argv[2]);
+        strcpy(console.host_ip, atoi(argv[4]));
+        strcpy(console.host_port, atoi(argv[6]));
+    }
     else
     {
-        fprintf(stderr, "Usage: %s -l <console-logfile>\n", argv[0]);
+        fprintf(stderr, "Usage: %s -l <console-logfile> -h <host_IP> -p <host_port>\n", argv[0]);
         exit(EXIT_FAILURE);
     }
 }
