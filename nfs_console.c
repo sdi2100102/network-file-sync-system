@@ -84,8 +84,6 @@ void console_run()
         if (console.command.type == UKNOWN)
             continue;
 
-        // nfs_in_send(console.command_string);
-
         /* Send command to manager */
         if (write(console.manager_socket, console.command_string, strlen(console.command_string) + 1) < 0)
             perror_exit("write");
@@ -95,7 +93,6 @@ void console_run()
         snprintf(message, sizeof(message), "Command %.*s\n", (int)strlen(console.command_string), console.command_string);
         log_timed_fd(message, console.logfile_fd);
 
-        // nfs_out_read();
         manager_remote_read();
 
         if (console.command.type == SHUTDOWN)
@@ -215,18 +212,23 @@ int client_socket_init(const char *server_ip, int server_port)
 
 void manager_remote_read()
 {
-    ssize_t bytes_read = read(console.manager_socket, console.response, sizeof(console.response) - 1);
-    if (bytes_read == -1)
-        if (errno == EAGAIN || errno == EWOULDBLOCK)
-        {
-            return; // no data available
-        }
-        else
-            perror_exit("read manager remote");
-    if (bytes_read == 0)
+    char buffer[BUF_SIZE];
+    while (1)
     {
-        return; // no data available
-    }
+        ssize_t n = read(console.manager_socket, buffer, sizeof(buffer) - 1);
+        if (n < 0)
+            perror_exit("read manager socket");
+        if (n == 0)
+            break;
+        buffer[n] = '\0';
 
-    console.response[bytes_read] = '\0';
+        if (strstr(buffer, END_OF_MESSAGE) != NULL)
+        {
+            *strstr(buffer, END_OF_MESSAGE) = '\0'; // remove END_OF_MESSAGE marker
+            printf("%s", buffer);
+            break;
+        }
+        log_untimed_fd(buffer, console.logfile_fd);
+        printf("%s", buffer);
+    }
 }

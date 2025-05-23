@@ -158,14 +158,14 @@ void close_manager(ManagerInfo *manager_info)
     char message[BUF_SIZE];
     strcpy(message, "Waiting for all active worker_list to finish.\n");
     log_timed_stdout(message);
-    log_timed_fd(message, manager_info->nfs_out);
+    log_timed_fd(message, manager_info->console_socket);
 
     while (wait(&status) > 0) // wait for all active worker_list
         ;
 
     strcpy(message, "Processing remaining queued tasks.\n");
     log_timed_stdout(message);
-    log_timed_fd(message, manager_info->nfs_out);
+    log_timed_fd(message, manager_info->console_socket);
 
     while (execute_next_operation(manager_info) >= 0) // empty operation queue
         ;
@@ -183,8 +183,8 @@ void close_manager(ManagerInfo *manager_info)
 
     strcpy(message, "Manager shutdown complete.\n");
     log_timed_stdout(message);
-    log_timed_fd(message, manager_info->nfs_out);
-    log_end_message(manager_info->nfs_out);
+    log_timed_fd(message, manager_info->console_socket);
+    log_end_message(manager_info->console_socket);
 
     nfs_in_close(manager_info);
     nfs_out_close(manager_info);
@@ -258,8 +258,8 @@ void nfs_add(ManagerInfo *manager_info, SyncInfo sync_info)
         snprintf(message, sizeof(message), "Already in queue: %.*s\n",
                  (int)strlen(sync_info.source_dir), sync_info.source_dir);
         log_timed_stdout(message);
-        log_timed_fd(message, manager_info->nfs_out);
-        log_end_message(manager_info->nfs_out);
+        log_timed_fd(message, manager_info->console_socket);
+        log_end_message(manager_info->console_socket);
         return;
     }
 
@@ -289,7 +289,7 @@ void nfs_add(ManagerInfo *manager_info, SyncInfo sync_info)
     log_timed_stdout(message);
     log_timed_fd(message, manager_info->logfile_fd);
     if (!sync_info.from_config)
-        log_timed_fd(message, manager_info->nfs_out); // only send to console if not added from config
+        log_timed_fd(message, manager_info->console_socket); // only send to console if not added from config
 
     snprintf(message, sizeof(message), "Monitoring started for %.*s\n",
              (int)strlen(sync_info.source_dir), sync_info.source_dir);
@@ -297,8 +297,8 @@ void nfs_add(ManagerInfo *manager_info, SyncInfo sync_info)
     log_timed_fd(message, manager_info->logfile_fd);
     if (!sync_info.from_config)
     {
-        log_timed_fd(message, manager_info->nfs_out);
-        log_end_message(manager_info->nfs_out);
+        log_timed_fd(message, manager_info->console_socket);
+        log_end_message(manager_info->console_socket);
     }
 }
 
@@ -308,7 +308,7 @@ void nfs_sync(ManagerInfo *manager_info, SyncInfo sync_info)
 
     if (sims_find(manager_info->sync_info_mem_store, sync_info.source_dir, &sync_info) == -1)
     {
-        log_end_message(manager_info->nfs_out);
+        log_end_message(manager_info->console_socket);
         return; // directory not monitored
     }
 
@@ -317,8 +317,8 @@ void nfs_sync(ManagerInfo *manager_info, SyncInfo sync_info)
         snprintf(message, sizeof(message), "Sync already in progress: %.*s\n",
                  (int)strlen(sync_info.source_dir), sync_info.source_dir);
         log_timed_stdout(message);
-        log_timed_fd(message, manager_info->nfs_out);
-        log_end_message(manager_info->nfs_out);
+        log_timed_fd(message, manager_info->console_socket);
+        log_end_message(manager_info->console_socket);
         return; // directory already in queue
     }
 
@@ -328,7 +328,7 @@ void nfs_sync(ManagerInfo *manager_info, SyncInfo sync_info)
              (int)strlen(sync_info.target_dir), sync_info.target_dir);
     log_timed_stdout(message);
     log_timed_fd(message, manager_info->logfile_fd);
-    log_timed_fd(message, manager_info->nfs_out);
+    log_timed_fd(message, manager_info->console_socket);
 
     OperationInfo operation_info = {sync_info, "ALL", "FULL"};
     opq_add(manager_info->operation_queue, operation_info); // sync directory
@@ -339,8 +339,8 @@ void nfs_sync(ManagerInfo *manager_info, SyncInfo sync_info)
              (int)strlen(sync_info.target_dir), sync_info.target_dir);
     log_timed_stdout(message);
     log_timed_fd(message, manager_info->logfile_fd);
-    log_timed_fd(message, manager_info->nfs_out);
-    log_end_message(manager_info->nfs_out);
+    log_timed_fd(message, manager_info->console_socket);
+    log_end_message(manager_info->console_socket);
 }
 
 void nfs_status(ManagerInfo *manager_info, SyncInfo sync_info)
@@ -352,8 +352,8 @@ void nfs_status(ManagerInfo *manager_info, SyncInfo sync_info)
         snprintf(message, sizeof(message), "Directory not monitored: %.*s\n",
                  (int)strlen(sync_info.source_dir), sync_info.source_dir);
         log_timed_stdout(message);
-        log_timed_fd(message, manager_info->nfs_out);
-        log_end_message(manager_info->nfs_out);
+        log_timed_fd(message, manager_info->console_socket);
+        log_end_message(manager_info->console_socket);
         return;
     }
 
@@ -371,8 +371,8 @@ void nfs_status(ManagerInfo *manager_info, SyncInfo sync_info)
              sync_info.error_num,
              (sync_info.status == 1) ? "Active" : "Inactive");
     log_timed_stdout(message);
-    log_timed_fd(message, manager_info->nfs_out);
-    log_end_message(manager_info->nfs_out);
+    log_timed_fd(message, manager_info->console_socket);
+    log_end_message(manager_info->console_socket);
 }
 
 void nfs_cancel(ManagerInfo *manager_info, SyncInfo sync_info)
@@ -384,8 +384,8 @@ void nfs_cancel(ManagerInfo *manager_info, SyncInfo sync_info)
         snprintf(message, sizeof(message), "Directory not monitored: %.*s\n",
                  (int)strlen(sync_info.source_dir), sync_info.source_dir);
         log_timed_stdout(message);
-        log_timed_fd(message, manager_info->nfs_out);
-        log_end_message(manager_info->nfs_out);
+        log_timed_fd(message, manager_info->console_socket);
+        log_end_message(manager_info->console_socket);
         return;
     }
 
@@ -399,8 +399,8 @@ void nfs_cancel(ManagerInfo *manager_info, SyncInfo sync_info)
              (int)strlen(sync_info.source_dir), sync_info.source_dir);
     log_timed_stdout(message);
     log_timed_fd(message, manager_info->logfile_fd);
-    log_timed_fd(message, manager_info->nfs_out);
-    log_end_message(manager_info->nfs_out);
+    log_timed_fd(message, manager_info->console_socket);
+    log_end_message(manager_info->console_socket);
 }
 
 void execute_operation(ManagerInfo *manager_info, OperationInfo operation_info)
@@ -598,7 +598,7 @@ void execute_command(ManagerInfo *manager_info)
     case SHUTDOWN:
         strcpy(message, "Shutting down manager...\n");
         log_timed_stdout(message);
-        log_timed_fd(message, manager_info->nfs_out);
+        log_timed_fd(message, manager_info->console_socket);
         manager_info->shutdown = 1;
         break;
     default:
