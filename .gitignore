@@ -2,6 +2,6 @@
 *.txt
 *~
 .vscode
-fss_manager
-fss_worker
-fss_console
+nfs_manager
+nfs_worker
+nfs_console

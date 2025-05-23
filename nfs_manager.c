@@ -12,6 +12,11 @@
 #include <sys/signal.h>
 #include <sys/inotify.h>
 #include <limits.h>
+#include <sys/socket.h> 
+#include <netinet/in.h>
+#include <netdb.h>      
+#include <ctype.h>  
+#include <arpa/inet.h>    
 
 #include "utils.h"
 #include "nfs_log.h"
@@ -53,6 +58,7 @@ typedef struct
     WorkerList worker_list;
     int console_port_number;
     int worker_buffer_size;
+    int console_socket;
 } ManagerInfo;
 
 ManagerInfo *manager_init(int argc, char *argv[]);
@@ -81,6 +87,8 @@ void nfs_out_close(ManagerInfo *manager_info);
 void execute_command(ManagerInfo *manager_info);
 void collect_workers(ManagerInfo *manager_info);
 void update_sync_info(ManagerInfo *manager_info, char *source_dir, ExecReport);
+int server_socket_init(int port);
+void console_remote_read(ManagerInfo *manager_info);
 
 int main(int argc, char *argv[])
 {
@@ -114,6 +122,8 @@ ManagerInfo *manager_init(int argc, char *argv[])
 
     nfs_in_init(manager_info);
     nfs_out_init(manager_info);
+
+    manager_info->console_socket = server_socket_init(manager_info->console_port_number);
 
     read_config(manager_info);
 
@@ -178,6 +188,9 @@ void close_manager(ManagerInfo *manager_info)
 
     nfs_in_close(manager_info);
     nfs_out_close(manager_info);
+
+    close(manager_info->console_socket);
+
     cmd_free(manager_info->command);
     if (close(manager_info->logfile_fd) == -1)
         perror_exit("close logfile");
@@ -201,9 +214,9 @@ void read_arguments(int argc, char *argv[], ManagerInfo *manager_info)
         else
             manager_info->worker_limit = worker_limit;
 
-        manager_info->console_port_number = atoi(argv[7]);
+        manager_info->console_port_number = atoi(argv[8]);
 
-        int buffer_size = atoi(argv[9]);
+        int buffer_size = atoi(argv[10]);
         if (buffer_size > 0)
             manager_info->worker_buffer_size = buffer_size;
         else
@@ -509,7 +522,9 @@ void sigchld_handler(int sig)
 void check_commands(ManagerInfo *manager_info)
 {
     manager_info->command_string[0] = '\0'; // reset previous command
-    nfs_in_read(manager_info);
+    // nfs_in_read(manager_info);
+
+    console_remote_read(manager_info);
 
     char command_string_temp[BUF_SIZE]; // don't change manager command string
     strcpy(command_string_temp, manager_info->command_string);
@@ -651,4 +666,58 @@ void update_sync_info(ManagerInfo *manager_info, char *source_dir, ExecReport ex
     sync_info.error_num += exec_report.error_num;
 
     sims_update(manager_info->sync_info_mem_store, sync_info.source_dir, sync_info);
+}
+
+void console_remote_read(ManagerInfo *manager_info)
+{
+    ssize_t bytes_read = read(manager_info->console_socket, manager_info->command_string, sizeof(manager_info->command_string) - 1);
+    if (bytes_read == -1)
+        if (errno == EAGAIN || errno == EWOULDBLOCK)
+        {
+            return; // no data available
+        }
+        else
+            perror_exit("read console remote");
+    if (bytes_read == 0)
+    {
+        return; // no data available
+    }
+
+    manager_info->command_string[bytes_read] = '\0';
+}
+
+int server_socket_init(int port)
+{
+    /* Create socket */
+    int listening_socket;
+    if ((listening_socket = socket(AF_INET, SOCK_STREAM, 0)) < 0)
+        perror_exit("socket");
+
+    /* Override TCP socket reuse */
+    int opt = 1;
+    setsockopt(listening_socket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
+    /* Bind socket to address */
+    struct sockaddr_in server;
+    server.sin_family = AF_INET; /* Internet domain */
+    server.sin_addr.s_addr = htonl(INADDR_ANY);
+    server.sin_port = htons(port);
+    if (bind(listening_socket, (struct sockaddr *)&server, sizeof(server)) < 0)
+        perror_exit("bind");
+
+    /* Listen for connections */
+    if (listen(listening_socket, 1) < 0)
+        perror_exit("listen");
+
+    /* Accept connection */
+    int sock;
+    struct sockaddr_in client;
+    socklen_t clientlen;
+    if ((sock = accept(listening_socket, (struct sockaddr *)&client, &clientlen)) < 0)
+        perror_exit("accept");
+    close(listening_socket);
+
+    fcntl(sock, F_SETFL, O_NONBLOCK);
+
+    return sock;    
 }
