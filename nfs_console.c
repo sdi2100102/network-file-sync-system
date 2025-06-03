@@ -137,8 +137,6 @@ int client_socket_init(const char *server_ip, int server_port)
     if (connect(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
         perror_exit("connect");
 
-    printf("Connected to %s:%d\n", server_ip, server_port); //TODO REMOVE
-
     return sockfd;
 }
 

@@ -7,6 +7,8 @@
 
 #include "utils.h"
 
+#define perror2(s, e) fprintf(stderr, "%s: %s\n", s, strerror(e))
+
 char *find_between(const char *str, const char *start, const char *end, char *result, size_t result_size)
 {
     char *start_ptr = strstr(str, start);
@@ -55,4 +57,10 @@ int dir_exists(const char *path)
     {
         return 0; // it's not a directory
     }
+}
+
+void perror_exit2(char *message, int error)
+{
+    perror2(message, error);
+    exit(EXIT_FAILURE);
 }

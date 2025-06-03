@@ -12,20 +12,23 @@
 #include <sys/signal.h>
 #include <sys/inotify.h>
 #include <limits.h>
-#include <sys/socket.h> 
+#include <sys/socket.h>
 #include <netinet/in.h>
-#include <netdb.h>      
-#include <ctype.h>  
-#include <arpa/inet.h>    
+#include <netdb.h>
+#include <ctype.h>
+#include <arpa/inet.h>
+#include <dirent.h>
+#include <pthread.h>
 
 #include "utils.h"
 #include "nfs_log.h"
-#include "operation_queue.h"
 #include "sync_info_mem_store.h"
 #include "command.h"
 #include "nfs_log.h"
 #include "exec_report.h"
 #include "worker_list.h"
+#include "nfs_workers.h"
+#include "file_operation.h"
 
 #define BUF_SIZE 1024
 #define READ 0
@@ -43,7 +46,6 @@ typedef struct
     int worker_limit;
     FILE *config_file;
     SyncInfoMemStore sync_info_mem_store;
-    OperationQueue operation_queue;
     int inotify_fd;
     struct sigaction sa;
     char command_string[BUF_SIZE];
@@ -81,6 +83,7 @@ void collect_workers(ManagerInfo *manager_info);
 void update_sync_info(ManagerInfo *manager_info, char *source_dir, ExecReport);
 int server_socket_init(int port);
 void console_remote_read(ManagerInfo *manager_info);
+void queue_operation(ManagerInfo *manager_info, OperationInfo operation_info);
 
 int main(int argc, char *argv[])
 {
@@ -101,7 +104,6 @@ ManagerInfo *manager_init(int argc, char *argv[])
 {
     ManagerInfo *manager_info = malloc(sizeof(ManagerInfo));
     manager_info->sync_info_mem_store = sims_init();
-    manager_info->operation_queue = opq_init();
     manager_info->worker_list = wl_init();
 
     read_arguments(argc, argv, manager_info);
@@ -133,11 +135,11 @@ void monitor(ManagerInfo *manager_info)
 {
     while (!manager_info->shutdown)
     {
-        check_changes(manager_info);
+        // check_changes(manager_info);
         check_commands(manager_info);
-        execute_next_operation(manager_info);
-        if (got_sigchld)
-            collect_workers(manager_info);
+        // execute_next_operation(manager_info);
+        // if (got_sigchld)
+            // collect_workers(manager_info);
     }
 }
 
@@ -156,18 +158,17 @@ void close_manager(ManagerInfo *manager_info)
     log_timed_stdout(message);
     log_timed_fd(message, manager_info->console_socket);
 
-    while (execute_next_operation(manager_info) >= 0) // empty operation queue
-        ;
+    // while (execute_next_operation(manager_info) >= 0) // empty operation queue
+        // ;
 
-    SyncInfo sync_info;
-    while (sims_pop(manager_info->sync_info_mem_store, &sync_info) == 0) // empty sync_info_mem_store
-        if (inotify_rm_watch(manager_info->inotify_fd, sync_info.inotify_wd) == -1)
-            perror_exit("inotify_rm_watch");
+    // SyncInfo sync_info;
+    // while (sims_pop(manager_info->sync_info_mem_store, &sync_info) == 0) // empty sync_info_mem_store
+        // if (inotify_rm_watch(manager_info->inotify_fd, sync_info.inotify_wd) == -1)
+            // perror_exit("inotify_rm_watch");
 
     if (close(manager_info->inotify_fd) == -1)
         perror_exit("close inotify");
     sims_free(manager_info->sync_info_mem_store);
-    opq_free(manager_info->operation_queue);
     wl_free(manager_info->worker_list);
 
     strcpy(message, "Manager shutdown complete.\n");
@@ -249,10 +250,11 @@ void nfs_add(ManagerInfo *manager_info, SyncInfo sync_info)
         return;
     }
 
-    if (!dir_exists(sync_info.source_dir))
+    if (!dir_exists(sync_info.source_dir) || !dir_exists(sync_info.target_dir))
+    {
+        log_end_message(manager_info->console_socket); // if no end message is sent, console hangs
         return;
-    if (!dir_exists(sync_info.target_dir))
-        return;
+    }
 
     /* Set sync info attributes */
     sync_info.error_num = 0;
@@ -266,7 +268,7 @@ void nfs_add(ManagerInfo *manager_info, SyncInfo sync_info)
     sims_add(manager_info->sync_info_mem_store, sync_info); // add to sync_info_mem_store
 
     OperationInfo operation_info = {sync_info, "ALL", "FULL"};
-    opq_add(manager_info->operation_queue, operation_info);
+    queue_operation(manager_info, operation_info);
 
     /* log to stdout, logfile and console */
     snprintf(message, sizeof(message), "Added directory: %.*s -> %.*s\n",
@@ -298,16 +300,6 @@ void nfs_sync(ManagerInfo *manager_info, SyncInfo sync_info)
         return; // directory not monitored
     }
 
-    if (opq_exists(manager_info->operation_queue, sync_info.source_dir) == 1)
-    {
-        snprintf(message, sizeof(message), "Sync already in progress: %.*s\n",
-                 (int)strlen(sync_info.source_dir), sync_info.source_dir);
-        log_timed_stdout(message);
-        log_timed_fd(message, manager_info->console_socket);
-        log_end_message(manager_info->console_socket);
-        return; // directory already in queue
-    }
-
     /* log sync start */
     snprintf(message, sizeof(message), "Syncing directory: %.*s -> %.*s\n",
              (int)strlen(sync_info.source_dir), sync_info.source_dir,
@@ -317,7 +309,6 @@ void nfs_sync(ManagerInfo *manager_info, SyncInfo sync_info)
     log_timed_fd(message, manager_info->console_socket);
 
     OperationInfo operation_info = {sync_info, "ALL", "FULL"};
-    opq_add(manager_info->operation_queue, operation_info); // sync directory
 
     /* log sync complete */
     snprintf(message, sizeof(message), "Sync complete: %.*s -> %.*s\n",
@@ -463,7 +454,6 @@ void apply_changes(ManagerInfo *manager_info, struct inotify_event *event, SyncI
             strcpy(operation_info.operation, "DELETED");
         if (event->mask & IN_MODIFY)
             strcpy(operation_info.operation, "MODIFIED");
-        opq_add(manager_info->operation_queue, operation_info);
     }
 }
 
@@ -474,8 +464,6 @@ int execute_next_operation(ManagerInfo *manager_info)
 
     /* Pop from queue and execute syncing operation */
     OperationInfo next_operation;
-    if (opq_pop(manager_info->operation_queue, &next_operation) == -1)
-        return -1; // queue is empty
     execute_operation(manager_info, next_operation);
     return 0;
 }
@@ -483,11 +471,6 @@ int execute_next_operation(ManagerInfo *manager_info)
 void execute_queued_operations(ManagerInfo *manager_info)
 {
     OperationInfo next_operation;
-    while (!opq_is_empty(manager_info->operation_queue))
-    {
-        opq_pop(manager_info->operation_queue, &next_operation);
-        execute_operation(manager_info, next_operation);
-    }
 }
 
 void sigaction_init(ManagerInfo *manager_info)
@@ -656,5 +639,35 @@ int server_socket_init(int port)
 
     fcntl(sock, F_SETFL, O_NONBLOCK);
 
-    return sock;    
+    return sock;
+}
+
+void queue_operation(ManagerInfo *manager_info, OperationInfo operation_info)
+{
+    DIR *source_dir = opendir(operation_info.sync_info.source_dir);
+    if (source_dir == NULL)
+        perror_exit("opendir");
+
+    struct dirent *file;
+    while ((file = readdir(source_dir)) != NULL)
+    {
+        if (strcmp(file->d_name, ".") == 0 || strcmp(file->d_name, "..") == 0)
+            continue;
+
+        char source_full_path[REPORT_FIELD_SIZE], target_full_path[REPORT_FIELD_SIZE];
+        snprintf(source_full_path, sizeof(source_full_path), "%.*s/%.*s", (int)strlen(operation_info.sync_info.source_dir), operation_info.sync_info.source_dir, (int)strlen(file->d_name), file->d_name);
+
+        OperationInfo op;
+        strcpy(op.file_name, file->d_name);
+        strcpy(op.operation, operation_info.operation);
+        strcpy(op.sync_info.source_dir, operation_info.sync_info.source_dir);
+        strcpy(op.sync_info.target_dir, operation_info.sync_info.target_dir);
+        printf("operation: %s\n", op.operation == ADD ? "add" : "full");
+        printf("source: %.*s\n", (int)strlen(op.sync_info.source_dir), op.sync_info.source_dir);
+        printf("target: %.*s\n", (int)strlen(op.sync_info.target_dir), op.sync_info.target_dir);
+        file_operation(op.sync_info.source_dir, op.sync_info.target_dir, op.file_name, op.operation);
+    }
+
+    if (closedir(source_dir) == -1)
+        perror_exit("closedir");
 }

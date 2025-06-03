@@ -7,5 +7,6 @@ char *find_between(const char *str, const char *start, const char *end, char *re
 void format_time(time_t t, char *buf);
 void perror_exit(char* message);
 int dir_exists(const char *path);
+void perror_exit2(char *message, int error);
 
 #endif // UTILS_H

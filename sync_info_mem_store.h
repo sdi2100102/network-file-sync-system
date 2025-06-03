@@ -3,6 +3,8 @@
 
 #define BUF_SIZE 1024
 
+#include <time.h>
+
 typedef struct ListTag *SyncInfoMemStore;
 
 typedef struct
