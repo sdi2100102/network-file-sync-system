@@ -12,7 +12,7 @@ typedef struct
     char operation[BUF_SIZE];
 } OperationInfo;
 
-void workers_init();
+void workers_init(int num_workers, int queue_size);
 void workers_close();
 void place_operation(OperationInfo operation);
 
