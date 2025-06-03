@@ -18,11 +18,10 @@ typedef struct
     int error_num;
 } ExecReport;
 
-void complete_exec_report();
-void initialize_exec_report(char *source_path, char *target_path, char *file_name, char *operation);
-void copy_success(char *);
-void file_error(char *);
-void dir_error(char *);
+void complete_exec_report(ExecReport* exec_report);
+ExecReport initialize_exec_report(char *source_path, char *target_path, char *file_name, char *operation);
+void copy_success(ExecReport* exec_report, char *);
+void file_error(ExecReport* exec_report, char *);
+void dir_error(ExecReport* exec_report, char *);
 
 #endif // EXEC_REPORT_H
-
