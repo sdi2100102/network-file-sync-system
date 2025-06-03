@@ -256,7 +256,8 @@ void nfs_cancel(ManagerInfo *manager_info, SyncInfo sync_info)
     sync_info.status = 0;
     sims_remove(manager_info->sync_info_mem_store, sync_info.source_dir);
 
-    // todo cancel operations
+    /* Cancel queued operations */
+    remove_operations_by_source_dir(sync_info.source_dir);
 
     /* log to stdout, logfile and console */
     snprintf(message, sizeof(message), "Monitoring stopped for %.*s\n",

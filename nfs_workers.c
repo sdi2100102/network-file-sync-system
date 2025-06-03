@@ -26,6 +26,10 @@ static OperationQueue queue;
 static pthread_t *worker_threads;
 static int worker_count;
 
+void perform_operation(OperationInfo op);
+static void *worker_function(void *arg);
+void place_operation(OperationInfo op);
+
 void perform_operation(OperationInfo op)
 {
     file_operation(op.sync_info.source_dir, op.sync_info.target_dir, op.file_name, op.operation); // todo replace with client communication
@@ -116,4 +120,34 @@ void workers_close()
     pthread_cond_destroy(&queue.not_full);
     free(queue.buffer);
     free(worker_threads);
+}
+
+void remove_operations_by_source_dir(const char *source_dir)
+{
+    pthread_mutex_lock(&queue.mutex);
+
+    int new_count = 0;
+    int i = queue.front;
+    OperationInfo *new_buffer = malloc(sizeof(OperationInfo) * queue.size);
+
+    for (int processed = 0; processed < queue.count; processed++)
+    {
+        OperationInfo *op = &queue.buffer[i];
+        if (strcmp(op->sync_info.source_dir, source_dir) != 0)
+        {
+            new_buffer[new_count++] = *op;
+        }
+        i = (i + 1) % queue.size;
+    }
+
+    // Replace old buffer content with new one
+    memcpy(queue.buffer, new_buffer, sizeof(OperationInfo) * new_count);
+    free(new_buffer);
+
+    queue.front = 0;
+    queue.rear = new_count % queue.size;
+    queue.count = new_count;
+
+    pthread_cond_broadcast(&queue.not_full); // signal in case we were full
+    pthread_mutex_unlock(&queue.mutex);
 }

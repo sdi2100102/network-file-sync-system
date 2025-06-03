@@ -15,5 +15,6 @@ typedef struct
 void workers_init(int num_workers, int queue_size);
 void workers_close();
 void place_operation(OperationInfo operation);
+void remove_operations_by_source_dir(const char *source_dir);
 
 #endif // NFS_WORKERS_H
