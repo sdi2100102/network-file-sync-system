@@ -4,13 +4,18 @@
 #define BUF_SIZE 1024
 
 #include <time.h>
+#include <netinet/in.h>
 
 typedef struct ListTag *SyncInfoMemStore;
 
 typedef struct
 {
     char source_dir[BUF_SIZE]; // acts as key for SyncInfo entries
+    char source_ip[INET6_ADDRSTRLEN];
+    int source_port;
     char target_dir[BUF_SIZE];
+    int target_port;
+    char target_ip[INET6_ADDRSTRLEN];
     int inotify_wd;
     time_t last_sync;
     int error_num;

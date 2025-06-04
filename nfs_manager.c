@@ -66,6 +66,7 @@ void execute_command(ManagerInfo *manager_info);
 int server_socket_init(int port);
 void console_remote_read(ManagerInfo *manager_info);
 void queue_operation(ManagerInfo *manager_info, OperationInfo operation_info);
+void string_args_to_sync_info(char *source_string, char *target_string, SyncInfo *sync_info);
 
 int main(int argc, char *argv[])
 {
@@ -177,8 +178,15 @@ void read_config(ManagerInfo *manager_info)
 
     SyncInfo sync_info;
     sync_info.from_config = 1;
-    while (fscanf(manager_info->config_file, "%s %s", sync_info.source_dir, sync_info.target_dir) == 2) // read config entries
+
+    char source_string[BUF_SIZE];
+    char target_string[BUF_SIZE];
+    while (fscanf(manager_info->config_file, "%s %s", source_string, target_string) == 2) // read config entries
     {
+        string_args_to_sync_info(source_string, target_string, &sync_info);
+        printf("=========%s %s\n", source_string, target_string);
+        printf("%s %s %d\n", sync_info.source_dir, sync_info.source_ip, sync_info.source_port);
+        printf("%s %s %d\n", sync_info.target_dir, sync_info.target_ip, sync_info.target_port);
         nfs_add(manager_info, sync_info);
     }
 
@@ -295,8 +303,8 @@ void execute_command(ManagerInfo *manager_info)
     switch (manager_info->command.type)
     {
     case ADD:
-        strcpy(sync_info.source_dir, manager_info->command.arguments[1]);
-        strcpy(sync_info.target_dir, manager_info->command.arguments[2]);
+        printf("ADD: argument 1: %s, argument 2: %s\n", manager_info->command.arguments[1], manager_info->command.arguments[2]);
+        string_args_to_sync_info(manager_info->command.arguments[1], manager_info->command.arguments[2], &sync_info);
         nfs_add(manager_info, sync_info);
         break;
     case CANCEL:
@@ -390,10 +398,46 @@ void queue_operation(ManagerInfo *manager_info, OperationInfo operation_info)
         strcpy(op.sync_info.target_dir, operation_info.sync_info.target_dir);
         printf("operation: %s\n", op.operation == ADD ? "add" : "full");
         printf("source: %.*s\n", (int)strlen(op.sync_info.source_dir), op.sync_info.source_dir);
-        printf("target: %.*s\n", (int)strlen(op.sync_info.target_dir), op.sync_info.target_dir);
-        file_operation(op.sync_info.source_dir, op.sync_info.target_dir, op.file_name, op.operation);
+        printf("target: %.*s\n", (int)strlen(op.sync_info.target_dir), op.sync_info.target_dir); //todo remove
+        // file_operation(op.sync_info.source_dir, op.sync_info.target_dir, op.file_name, op.operation);
+        place_operation(op);
     }
 
     if (closedir(source_dir) == -1)
         perror_exit("closedir");
+}
+
+void parse_arg_string(const char *arg_string, char *dir, char *ip, int *port)
+{
+    char temp[BUF_SIZE];
+    strncpy(temp, arg_string, BUF_SIZE - 1);
+    temp[BUF_SIZE - 1] = '\0';
+
+    char *at = strchr(temp, '@');
+    char *colon = strchr(temp, ':');
+
+    if (!at || !colon || colon < at)
+    {
+        fprintf(stderr, "Invalid argument format: %s\n", arg_string);
+        dir[0] = ip[0] = '\0';
+        *port = -1;
+        return;
+    }
+
+    *at = '\0';
+    *colon = '\0';
+
+    strncpy(dir, temp, BUF_SIZE - 1);
+    dir[BUF_SIZE - 1] = '\0';
+
+    strncpy(ip, at + 1, INET6_ADDRSTRLEN - 1);
+    ip[INET6_ADDRSTRLEN - 1] = '\0';
+
+    *port = atoi(colon + 1);
+}
+
+void string_args_to_sync_info(char *source_string, char *target_string, SyncInfo *sync_info)
+{
+    parse_arg_string(source_string, sync_info->source_dir, sync_info->source_ip, &sync_info->source_port);
+    parse_arg_string(target_string, sync_info->target_dir, sync_info->target_ip, &sync_info->target_port);
 }

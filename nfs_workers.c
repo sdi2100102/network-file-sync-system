@@ -88,6 +88,8 @@ void workers_init(int num_workers, int queue_size)
 
 void place_operation(OperationInfo op)
 {
+    printf("Placing operation: %s, %s, %s\n", op.sync_info.target_dir, op.sync_info.source_dir, op.file_name);
+
     pthread_mutex_lock(&queue.mutex);
 
     while (queue.count == queue.size)
