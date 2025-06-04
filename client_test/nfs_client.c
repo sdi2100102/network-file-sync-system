@@ -76,7 +76,11 @@ void *client_run(void *arg)
     command_string[bytes_read] = '\0';
 
     if(bytes_read == 0)
-        perror_exit("read socket");
+    {
+        printf("No command\n"); //todo remove
+        close(manager_socket);
+        return NULL;
+    }
 
     /* Parse command */
     char command_string_temp[BUF_SIZE]; // don't change client command string
@@ -186,9 +190,6 @@ void command_pull(char *path_name, int manager_socket)
 
     if (close(source_fd) == -1)
         pull_error(manager_socket, "close");
-
-    if (write(manager_socket, END_OF_MESSAGE, strlen(END_OF_MESSAGE)) == -1)
-        pull_error(manager_socket, "write");
 }
 
 void command_push(char *path_name, int chunk_size, char *data, int manager_socket)

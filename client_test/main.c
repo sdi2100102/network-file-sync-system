@@ -170,7 +170,7 @@ void sync_dir(int source_sock, int target_sock, char *source_dir)
 
                 printf("%s\n", line);
                 pull(source_sock, line); // todo replace with thread
-                line_pos = 0; // Reset for next line
+                line_pos = 0;            // Reset for next line
             }
             else
             {
@@ -201,7 +201,7 @@ void pull_old(int sockfd, char *file_name)
         if (strstr(buf, END_OF_MESSAGE) != NULL)
         {
             *strstr(buf, END_OF_MESSAGE) = '\0'; // remove END_OF_MESSAGE marker
-            printf("%s", buf); 
+            printf("%s", buf);
             fflush(stdout);
 
             char message[BUF_SIZE];
@@ -220,43 +220,53 @@ void pull(int sockfd, char *file_name)
     char buf[BUF_SIZE];
     strcpy(buf, "pull ");
     strcat(buf, file_name);
-    socket_send(sockfd, buf);
+    socket_send(sockfd, buf); sleep(1);
 
     /* Read data */
-    int bytes_read=read(sockfd, buf, sizeof(buf)-1);
+    int bytes_read = read(sockfd, buf, sizeof(buf) - 1);
     buf[bytes_read] = '\0';
 
     char first_word[BUF_SIZE];
     char rest[BUF_SIZE];
     split_first_word(buf, first_word, rest);
 
-    printf("first word: %s\n", first_word);
-    printf("rest: %s\n", rest);
-    printf("Size: %d\n", atoi(first_word));
-
-    while (1)
+    printf("Size: %s\n", first_word);
+    printf("Data first written: %s\n", rest);
+    int bytes_to_read = atoi(first_word);
+    bytes_to_read-=strlen(rest);
+    while (bytes_to_read > 0)
     {
-        ssize_t n = read(sockfd, buf, sizeof(buf) - 1);
-        if (n < 0)
-            perror_exit("read manager socket");
-        if (n == 0)
-            break;
-        buf[n] = '\0';
-
-        if (strstr(buf, END_OF_MESSAGE) != NULL)
-        {
-            *strstr(buf, END_OF_MESSAGE) = '\0'; // remove END_OF_MESSAGE marker
-            printf("%s", buf); 
-            fflush(stdout);
-
-            char message[BUF_SIZE];
-            strcpy(message, buf);
-
-            break;
-        }
+        bytes_read = read(sockfd, buf, sizeof(buf) - 1);
+        if(bytes_read == -1)
+            perror_exit("read socket");
+        buf[bytes_read] = '\0';
         printf("%s", buf);
-        fflush(stdout);
+        bytes_to_read -= bytes_read;
     }
+
+    // while (1)
+    // {
+    //     ssize_t n = read(sockfd, buf, sizeof(buf) - 1);
+    //     if (n < 0)
+    //         perror_exit("read manager socket");
+    //     if (n == 0)
+    //         break;
+    //     buf[n] = '\0';
+
+    //     if (strstr(buf, END_OF_MESSAGE) != NULL)
+    //     {
+    //         *strstr(buf, END_OF_MESSAGE) = '\0'; // remove END_OF_MESSAGE marker
+    //         printf("%s", buf);
+    //         fflush(stdout);
+
+    //         char message[BUF_SIZE];
+    //         strcpy(message, buf);
+
+    //         break;
+    //     }
+    //     printf("%s", buf);
+    //     fflush(stdout);
+    // }
 }
 
 void push(int sockfd)
@@ -301,18 +311,22 @@ void socket_send(int socket, char *buffer)
         perror_exit("write socket");
 }
 
-void split_first_word(const char *input, char *first_word, char *rest) {
+void split_first_word(const char *input, char *first_word, char *rest)
+{
     int i = 0, j = 0;
 
-    while (isspace(input[i])) i++;
+    while (isspace(input[i]))
+        i++;
 
     // extract first word
-    while (input[i] && !isspace(input[i])) {
+    while (input[i] && !isspace(input[i]))
+    {
         first_word[j++] = input[i++];
     }
     first_word[j] = '\0';
 
-    while (isspace(input[i])) i++;
+    while (isspace(input[i]))
+        i++;
 
     // rest of the string
     strcpy(rest, input + i);
