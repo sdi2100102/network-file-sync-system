@@ -6,14 +6,14 @@
 #include <unistd.h>
 #include <time.h>
 #include <poll.h>
-#include "nfs_log.h"
-#include "utils.h"
 #include "command.h"
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
 #include <arpa/inet.h>
+#include "nfs_log.h"
+#include "utils.h"
 
 #define BUF_SIZE 1024
 
