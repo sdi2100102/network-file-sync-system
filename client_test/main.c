@@ -18,12 +18,13 @@
 
 #define BUF_SIZE 1024
 
-void sync_dir(int source_sock, int target_sock, char *source_dir);
+void sync_dir(char *source_dir, char *target_dir);
 void pull(int sockfd, char *file_name);
 int init_socket(char *server_ip, int server_port);
 void socket_send(int socket, char *buffer);
 void push(int sockfd);
 void split_first_word(const char *input, char *first_word, char *rest);
+void pull_push(char *source_dir, char *target_dir, char *file_name);
 
 void list(int source_sock, char *source_dir);
 void read_filenames_from_socket(int sockfd, char *source_dir);
@@ -38,28 +39,30 @@ int main(void)
 {
     // int source_sock = init_socket("127.0.0.1", 8088);
 
-    int source_port = 8001;
-    char *source_ip = "127.0.0.1";
-    int source_sock = init_socket(source_ip, source_port);
+    // int source_port = 8001;
+    // char *source_ip = "127.0.0.1";
+    // int source_sock = init_socket(source_ip, source_port);
 
-    int target_port = 8002;
-    char *target_ip = "127.0.0.1";
-    int target_sock = init_socket(target_ip, target_port);
+    // // int target_port = 8002;
+    // // char *target_ip = "127.0.0.1";
+    // // int target_sock = init_socket(target_ip, target_port);
 
-    sleep(1);
-    char *source_dir = "/dir";
-    // sync_dir(source_sock, target_sock, source_dir);
+    // sleep(1);
+    // char *source_dir = "/dir";
+    // char *target_dir = "/dir";
+    // sync_dir(source_dir, target_dir);
 
     // read_filenames_from_socket(source_sock, source_dir);
-    pull(source_sock, "dir/file1.txt");
-    // push(source_sock);
+    // // pull(source_sock, "dir/file1.txt");
+    // // push(source_sock);
 
-    push(target_sock);
+    // // push(target_sock);
 
-    getchar();
+    sync_dir("/dir", "/dir");
+    // pull_push("/dir", "/dir", "file1.txt");
 
-    close(source_sock);
-    close(target_sock);
+    // close(source_sock);
+    // close(target_sock);
     return 0;
 }
 
@@ -136,8 +139,10 @@ void list(int source_sock, char *source_dir)
     }
 }
 
-void sync_dir(int source_sock, int target_sock, char *source_dir)
+void sync_dir(char *source_dir, char *target_dir)
 {
+    int source_sock = init_socket("127.0.0.1", 8001);
+
     /* list files from source */
     char buffer[BUF_SIZE];
     strcpy(buffer, "list ");
@@ -169,8 +174,8 @@ void sync_dir(int source_sock, int target_sock, char *source_dir)
                 }
 
                 printf("%s\n", line);
-                pull(source_sock, line); // todo replace with thread
-                line_pos = 0;            // Reset for next line
+                pull_push(source_dir, target_dir, line); // todo replace with thread
+                line_pos = 0;                            // Reset for next line
             }
             else
             {
@@ -181,6 +186,8 @@ void sync_dir(int source_sock, int target_sock, char *source_dir)
 
     if (bytes_read < 0)
         perror_exit("read source socket");
+
+    close(source_sock);
 }
 
 void pull_old(int sockfd, char *file_name)
@@ -214,13 +221,64 @@ void pull_old(int sockfd, char *file_name)
     }
 }
 
+void pull_push(char *source_dir, char *target_dir, char *file_name)
+{
+    int source_sock = init_socket("127.0.0.1", 8001);
+    int target_sock = init_socket("127.0.0.1", 8002);
+
+    /* Send pull command */
+    char buf[BUF_SIZE];
+    snprintf(buf, BUF_SIZE, "pull %.*s/%.*s",
+             (int)strlen(source_dir), source_dir,
+             (int)strlen(file_name), file_name);
+    printf("SENT: %s\n", buf);
+    socket_send(source_sock, buf);
+    sleep(1);
+
+    /* Read data */
+    int bytes_read = read(source_sock, buf, sizeof(buf) - 1);
+    buf[bytes_read] = '\0';
+
+    char chunk_size[BUF_SIZE];
+    char rest[BUF_SIZE];
+    split_first_word(buf, chunk_size, rest);
+
+    char message[BUF_SIZE];
+    snprintf(message, BUF_SIZE, "push %.*s/%.*s %.*s %.*s",
+             (int)strlen(target_dir), target_dir,
+             (int)strlen(file_name), file_name,
+             (int)strlen(chunk_size), chunk_size,
+             (int)strlen(rest), rest);
+    socket_send(target_sock, message);
+    printf("SENT: %s\n", message);
+
+    printf("Size: %s\n", chunk_size);
+    printf("Data first written: %s\n", rest);
+    int bytes_to_read = atoi(chunk_size);
+    bytes_to_read -= strlen(rest);
+    while (bytes_to_read > 0)
+    {
+        bytes_read = read(source_sock, buf, sizeof(buf) - 1);
+        if (bytes_read == -1)
+            perror_exit("read socket");
+        buf[bytes_read] = '\0';
+        printf("SENT: %s", buf);
+        socket_send(target_sock, buf);
+        bytes_to_read -= bytes_read;
+    }
+
+    close(source_sock);
+    close(target_sock);
+}
+
 void pull(int sockfd, char *file_name)
 {
     /* Send pull command */
     char buf[BUF_SIZE];
     strcpy(buf, "pull ");
     strcat(buf, file_name);
-    socket_send(sockfd, buf); sleep(1);
+    socket_send(sockfd, buf);
+    sleep(1);
 
     /* Read data */
     int bytes_read = read(sockfd, buf, sizeof(buf) - 1);
@@ -233,40 +291,16 @@ void pull(int sockfd, char *file_name)
     printf("Size: %s\n", first_word);
     printf("Data first written: %s\n", rest);
     int bytes_to_read = atoi(first_word);
-    bytes_to_read-=strlen(rest);
+    bytes_to_read -= strlen(rest);
     while (bytes_to_read > 0)
     {
         bytes_read = read(sockfd, buf, sizeof(buf) - 1);
-        if(bytes_read == -1)
+        if (bytes_read == -1)
             perror_exit("read socket");
         buf[bytes_read] = '\0';
         printf("%s", buf);
         bytes_to_read -= bytes_read;
     }
-
-    // while (1)
-    // {
-    //     ssize_t n = read(sockfd, buf, sizeof(buf) - 1);
-    //     if (n < 0)
-    //         perror_exit("read manager socket");
-    //     if (n == 0)
-    //         break;
-    //     buf[n] = '\0';
-
-    //     if (strstr(buf, END_OF_MESSAGE) != NULL)
-    //     {
-    //         *strstr(buf, END_OF_MESSAGE) = '\0'; // remove END_OF_MESSAGE marker
-    //         printf("%s", buf);
-    //         fflush(stdout);
-
-    //         char message[BUF_SIZE];
-    //         strcpy(message, buf);
-
-    //         break;
-    //     }
-    //     printf("%s", buf);
-    //     fflush(stdout);
-    // }
 }
 
 void push(int sockfd)
