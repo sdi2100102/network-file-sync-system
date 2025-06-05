@@ -33,6 +33,7 @@ void place_operation(OperationInfo op);
 void pull_push(OperationInfo op);
 void send_pull_command(OperationInfo op, int source_sock);
 int read_file_size(int source_sock);
+void recieve_ack(int manager_socket);
 
 void perform_operation(OperationInfo op)
 {
@@ -165,8 +166,26 @@ void remove_operations_by_source_dir(const char *source_dir)
     pthread_mutex_unlock(&queue.mutex);
 }
 
-void pull_push(OperationInfo op)
+void pull_push_total(OperationInfo op)
 {
+    /* Open sockets */
+    int source_sock = client_socket_init(op.sync_info.source_ip, op.sync_info.source_port);
+    int target_sock = client_socket_init(op.sync_info.target_ip, op.sync_info.target_port);
+
+
+
+
+    /* Close sockets */
+    if (close(target_sock) == -1)
+        perror_exit("close");
+    if (close(source_sock) == -1)
+        perror_exit("close");
+}
+
+void pull_push_pull(OperationInfo op)
+{
+    // PULL TEST
+
     long int thread_id = pthread_self(); // todo remove
 
     /* Open socket */
@@ -193,6 +212,7 @@ void pull_push(OperationInfo op)
         int bytes_read = read(source_sock, buf, sizeof(buf) - 1);
         buf[bytes_read] = '\0';
         bytes_to_read -= bytes_read;
+        // client_socket_send(source_sock, buf);
 
         printf("8. DATA READ: %s | thread id: %ld | sock fd %d\n", buf, pthread_self(), source_sock); // todo remove
     }
@@ -202,43 +222,48 @@ void pull_push(OperationInfo op)
         perror_exit("close");
 }
 
-// void pull_push(OperationInfo op)
-// {
-//     long int thread_id = pthread_self(); // todo remove
+void pull_push_push(OperationInfo op)
+{
+    // PUSH TEST
 
-//     /* Open socket */
-//     int source_sock = client_socket_init(op.sync_info.source_ip, op.sync_info.source_port);
+    char *test_string = "This is a test string";
 
-//     /* Send pull command */
-//     send_pull_command(op, source_sock);
+    /* Open socket */
+    int target_sock = client_socket_init(op.sync_info.target_ip, op.sync_info.target_port);
 
-//     /* Read file size */
-//     int file_size = read_file_size(source_sock);
+    /* Send push command */
+    char buf[BUF_SIZE];
+    snprintf(buf, BUF_SIZE, "push %.*s/%.*s ",
+             (int)strlen(op.sync_info.target_dir), op.sync_info.target_dir,
+             (int)strlen(op.file_name), op.file_name);
+    printf("5. PUSH COMMAND SENT: %s\n", buf); // todo remove
+    client_socket_send(target_sock, buf);
 
-//     printf("6. FILE SIZE: %d | thread id: %ld | sock fd %d\n", file_size, pthread_self(), source_sock); // todo remove
+    /* Read ack */
+    recieve_ack(target_sock);
 
-//     /* Send ACK before reading data */
-//     client_socket_send(source_sock, "ACK");
+    printf("6. ACK RECEIVED | thread id: %ld | sock fd %d\n", pthread_self(), target_sock); // todo remove
 
-//     printf("7. ACK SENT | thread id: %ld | sock fd %d\n", pthread_self(), source_sock); // todo remove
+    /* Send file size */
+    char file_size[BUF_SIZE];
+    snprintf(file_size, BUF_SIZE, "%ld ", strlen(test_string)); // todo replace with file size
+    client_socket_send(target_sock, file_size);
+    printf("7. FILE SIZE SENT: %s\n", file_size); // todo remove
 
-//     /* Read data */
-//     int bytes_to_read = file_size;
-//     char buf[BUF_SIZE];
-//     while (bytes_to_read > 0)
-//     {
-//         int bytes_read = read(source_sock, buf, sizeof(buf) - 1);
-//         buf[bytes_read] = '\0';
-//         bytes_to_read -= bytes_read;
-//         // client_socket_send(source_sock, buf);
+    /* Read ack */
+    recieve_ack(target_sock);
 
-//         printf("8. DATA READ: %s | thread id: %ld | sock fd %d\n", buf, pthread_self(), source_sock); // todo remove
-//     }
+    /* Send data */
+    for (int i = 0; i < 10; i++)
+    {
+        client_socket_send(target_sock, test_string);
+        printf("8. SENT: %s\n", test_string); // todo remove
+    }
 
-//     /* Close socket */
-//     if (close(source_sock) == -1)
-//         perror_exit("close");
-// }
+    /* Close socket */
+    if (close(target_sock) == -1)
+        perror_exit("close");
+}
 
 // void pull_push(OperationInfo op)
 // {
@@ -303,4 +328,18 @@ int read_file_size(int source_sock)
     int bytes_read = read(source_sock, buf, sizeof(buf) - 1);
     buf[bytes_read] = '\0';
     return atoi(buf);
+}
+
+void recieve_ack(int manager_socket)
+{
+    char buf[BUF_SIZE];
+    int bytes_read;
+    if ((bytes_read = read(manager_socket, buf, strlen("ACK"))) == -1)
+        perror_exit("read socket");
+    buf[bytes_read] = '\0';
+    if (strcmp(buf, "ACK") != 0)
+    {
+        printf("Instead of ack, Recieved (in %d bytes): %s\n", bytes_read, buf); // todo remove
+        perror_exit("ACK not received");
+    }
 }
