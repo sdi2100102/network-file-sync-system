@@ -34,7 +34,7 @@ void console_init(int argc, char *argv[]);
 void console_run();
 void console_close();
 void read_arguments(int argc, char *argv[]);
-int client_socket_init(const char *server_ip, int server_port);
+int console_socket_init(const char *server_ip, int server_port);
 void manager_remote_read();
 
 int main(int argc, char *argv[])
@@ -54,7 +54,7 @@ void console_init(int argc, char *argv[])
     if ((console.logfile_fd = open(console.logfile_path, O_CREAT | O_WRONLY | O_TRUNC, 0777)) == -1)
         perror_exit("open logfile");
 
-    console.manager_socket = client_socket_init(console.manager_ip, console.manager_port);
+    console.manager_socket = console_socket_init(console.manager_ip, console.manager_port);
 }
 
 void console_run()
@@ -116,7 +116,7 @@ void read_arguments(int argc, char *argv[])
     }
 }
 
-int client_socket_init(const char *server_ip, int server_port)
+int console_socket_init(const char *server_ip, int server_port)
 {
     int sockfd;
     struct sockaddr_in server_addr;

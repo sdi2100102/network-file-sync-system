@@ -22,8 +22,12 @@ clean:
 	rm -f $(MANAGER) $(CONSOLE) $(MANAGER_OBJS) $(CONSOLE_OBJS)
 
 manager_run:
-	./$(MANAGER) -l manager_log_file.txt -c config_file.txt -n 10 -p 8000 -b 20 
+	./$(MANAGER) -l manager_log_file.txt -c config_file.txt -n 2 -p 8000 -b 20 
 
 console_run:
 	./$(CONSOLE) -l console_log_file.txt -h 127.0.0.1 -p 8000
+
+manager_full: # todo remove
+	$(MAKE)
+	$(MAKE) manager_run
 

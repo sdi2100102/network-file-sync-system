@@ -47,6 +47,12 @@ target_run:
 target_client:
 	gcc -g -O0 -o target/nfs_client nfs_client.c -lpthread
 
+test: test.c
+	gcc -g -O0 -o test test.c -lpthread
+
+test_run:
+	./test -p 8001
+
 client_full:
 	$(MAKE)
 	$(MAKE) client_run

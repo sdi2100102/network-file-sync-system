@@ -15,9 +15,9 @@
 #include <ctype.h>
 #include <pthread.h>
 
-#define END_OF_MESSAGE "__END__"
-
 #define BUF_SIZE 1024
+
+#define perror2(s, e) fprintf(stderr, "%s: %s\n", s, strerror(e))
 
 // todo: fix bug where it needs sleep(1) for reading or writing all data
 
@@ -33,6 +33,11 @@ void pull_error(int manager_socket, char message[]);
 void push_error(int manager_socket, char message[]);
 void split_into_4(char *str, char **p1, char **p2, char **p3, char **p4);
 void perror_exit(char *message);
+void perror_exit2(char *message, int error);
+int count_file_size(int source_fd);
+void send_file_size(int manager_socket, int file_size);
+void read_command_string(char command_string[], int manager_socket);
+void recieve_ack(int manager_socket);
 
 int main(int argc, char *argv[])
 {
@@ -45,17 +50,17 @@ int main(int argc, char *argv[])
         struct sockaddr_in client;
         socklen_t clientlen = sizeof(client);
         if ((sock = accept(listening_socket, (struct sockaddr *)&client, &clientlen)) < 0)
-            perror_exit("accept");
+            perror_exit2("accept", errno);
 
         /* Create detached tread */
         pthread_t thread;
         // Create the thread
-        if (pthread_create(&thread, NULL, client_run, &sock) != 0)
-            perror_exit("pthread_create");
+        if (pthread_create(&thread, NULL, client_run, (void *)(long)sock) != 0)
+            perror_exit2("pthread_create", errno);
 
         // Detach the thread
         if (pthread_detach(thread) != 0)
-            perror_exit("pthread_detach");
+            perror_exit2("pthread_detach", errno);
     }
 
     close(listening_socket);
@@ -64,23 +69,14 @@ int main(int argc, char *argv[])
 
 void *client_run(void *arg)
 {
-    int manager_socket = *(int *)arg;
-    printf("Manager socket: %d\n", manager_socket); // todo remove
+    int manager_socket = (int)(long)arg;
+    printf("1. New manager socket with fd: %d\n", manager_socket); // todo remove
 
     /* Read command string from manager */
     char command_string[BUF_SIZE];
-    command_string[0] = '\0';
-    int bytes_read;
-    if ((bytes_read = read(manager_socket, command_string, BUF_SIZE)) == -1)
-        perror_exit("read socket");
-    command_string[bytes_read] = '\0';
+    read_command_string(command_string, manager_socket);
 
-    if(bytes_read == 0)
-    {
-        printf("No command\n"); //todo remove
-        close(manager_socket);
-        return NULL;
-    }
+    printf("1.5. Original Command: %s\n", command_string); // todo remove
 
     /* Parse command */
     char command_string_temp[BUF_SIZE]; // don't change client command string
@@ -92,7 +88,7 @@ void *client_run(void *arg)
         char *source_dir = strtok(NULL, " \n");
         if (source_dir == NULL)
             return NULL; // todo replace with exit thread
-        printf("Command: list %s\n", source_dir);
+        printf("2. Command: list %s\n", source_dir);
         command_list(source_dir, manager_socket);
     }
     else if (strcmp(command_type, "pull") == 0)
@@ -101,7 +97,7 @@ void *client_run(void *arg)
         char *path_name = strtok(NULL, " \n");
         if (path_name == NULL)
             return NULL;
-        printf("Command: pull %s\n", path_name);
+        printf("2. Command: pull %s\n", path_name); // todo remove
         command_pull(path_name, manager_socket);
     }
     else if (strcmp(command_type, "push") == 0)
@@ -113,7 +109,7 @@ void *client_run(void *arg)
         {
             return NULL;
         }
-        printf("Command: push %s %s %s\n", path_name, chunk_size, data);
+        printf("2. Command: push %s %s %s\n", path_name, chunk_size, data);
         command_push(path_name, atoi(chunk_size), data, manager_socket); // todo fix
     }
 
@@ -150,33 +146,36 @@ void command_pull(char *path_name, int manager_socket)
 {
     char buf[BUF_SIZE];
 
+    /* Ignore first '\' in path name */
     if (path_name[0] == '/')
-        path_name++; // ignore first '\' in path name
+        path_name++;
 
+    /* Open file */
     int source_fd;
     if ((source_fd = open(path_name, O_RDONLY)) == -1)
         pull_error(manager_socket, "open");
 
     /* Count file size */
-    int bytes_read;
-    int total_bytes_read = 0;
-    while ((bytes_read = read(source_fd, buf, BUF_SIZE)) > 0)
-        total_bytes_read += bytes_read;
+    int file_size = count_file_size(source_fd);
 
-    if (bytes_read == -1)
-        pull_error(manager_socket, "read");
-
+    /* Reset file desriptor */
     if (lseek(source_fd, 0, SEEK_SET) == -1)
         pull_error(manager_socket, "lseek");
 
     /* Send file size */
-    char buf_size[BUF_SIZE];
-    snprintf(buf_size, BUF_SIZE, "%d ", total_bytes_read);
-    if (write(manager_socket, buf_size, strlen(buf_size)) == -1)
-        pull_error(manager_socket, "write");
+    send_file_size(manager_socket, file_size);
+
+    printf("3. Send file size %d\n", file_size); // todo remove
+
+    /* Recieve ACK */
+    recieve_ack(manager_socket);
+
+    printf("4. Recieved ACK\n"); // todo remove
+
+    printf("5. Start sending file\n"); // todo remove
 
     /* Send file */
-    printf("Data sent: ");
+    int bytes_read;
     while ((bytes_read = read(source_fd, buf, BUF_SIZE)) > 0)
     {
         buf[bytes_read] = '\0';
@@ -188,8 +187,7 @@ void command_pull(char *path_name, int manager_socket)
     if (bytes_read == -1)
         pull_error(manager_socket, "read");
 
-    if (close(source_fd) == -1)
-        pull_error(manager_socket, "close");
+    printf("\n");
 }
 
 void command_push(char *path_name, int chunk_size, char *data, int manager_socket)
@@ -239,6 +237,53 @@ void command_push(char *path_name, int chunk_size, char *data, int manager_socke
     }
 }
 
+// void command_push(char *path_name, int chunk_size, char *data, int manager_socket)
+// {
+//     if (path_name[0] == '/')
+//         path_name++; // ignore first '\' in path name
+
+//     int dest_fd;
+//     switch (chunk_size)
+//     {
+//     case 0:
+//         break;
+//     case -1:
+//         /* Truncate file */
+//         if ((dest_fd = open(path_name, O_WRONLY | O_CREAT | O_TRUNC, 0666)) == -1)
+//             push_error(manager_socket, "open");
+
+//         if (write(dest_fd, data, strlen(data)) == -1) // todo fix: write all data
+//             push_error(manager_socket, "write");
+
+//         if (close(dest_fd) == -1)
+//             push_error(manager_socket, "close");
+//         break;
+//     default:
+//         /* Append to file */
+//         if ((dest_fd = open(path_name, O_WRONLY | O_CREAT | O_APPEND, 0666)) == -1)
+//             push_error(manager_socket, "open");
+
+//         send_string(dest_fd, data); // write first chunk
+//         chunk_size -= strlen(data);
+
+//         /* Write remaining chunks */
+//         char buffer[1024];
+//         while (chunk_size > 0)
+//         {
+//             int bytes_read = read(manager_socket, buffer, sizeof(buffer));
+//             if (bytes_read == -1)
+//                 push_error(manager_socket, "read");
+//             if (write(dest_fd, buffer, bytes_read) == -1)
+//                 push_error(manager_socket, "write");
+//             chunk_size -= bytes_read;
+//         }
+
+//         if (close(dest_fd) == -1)
+//             push_error(manager_socket, "close");
+//         break;
+//     }
+// }
+
 int read_arguments(int argc, char *argv[])
 {
     int manager_port;
@@ -284,7 +329,7 @@ int listening_socket_init(int port)
 void send_string(int fd, char string[])
 {
     if (write(fd, string, strlen(string)) == -1)
-        perror_exit("write socket");
+        perror_exit2("write socket", errno);
 }
 
 void send_error(int manager_socket, char string[])
@@ -297,7 +342,6 @@ void send_error(int manager_socket, char string[])
 void pull_error(int manager_socket, char message[])
 {
     send_error(manager_socket, message);
-    send_string(manager_socket, END_OF_MESSAGE);
     perror_exit(message);
 }
 
@@ -368,4 +412,57 @@ void perror_exit(char *message)
 {
     perror(message);
     exit(EXIT_FAILURE);
+}
+
+void perror_exit2(char *message, int error)
+{
+    perror2(message, error);
+    exit(EXIT_FAILURE);
+}
+
+int count_file_size(int source_fd)
+{
+    /* Count file size */
+    char buf[BUF_SIZE];
+    int bytes_read;
+    int total_bytes_read = 0;
+    while ((bytes_read = read(source_fd, buf, BUF_SIZE)) > 0)
+        total_bytes_read += bytes_read;
+    return total_bytes_read;
+}
+
+void send_file_size(int manager_socket, int file_size)
+{
+    char buf[BUF_SIZE];
+    snprintf(buf, BUF_SIZE, "%d", file_size);
+    send_string(manager_socket, buf);
+}
+
+void read_command_string(char command_string[], int manager_socket)
+{
+    int bytes_read;
+    if ((bytes_read = read(manager_socket, command_string, BUF_SIZE)) == -1)
+        perror_exit("read socket");
+    command_string[bytes_read] = '\0';
+
+    if (bytes_read == 0)
+    {
+        printf("Connection closed | manager socket: %d\n", manager_socket); // todo remove
+        close(manager_socket);
+        perror_exit2("read manager command", errno);
+    }
+}
+
+void recieve_ack(int manager_socket)
+{
+    char buf[BUF_SIZE];
+    int bytes_read;
+    if ((bytes_read = read(manager_socket, buf, strlen("ACK"))) == -1)
+        perror_exit("read socket");
+    buf[bytes_read] = '\0';
+    if (strcmp(buf, "ACK") != 0)
+    {
+        printf("Instead of ack, Recieved (in %d bytes): %s\n", bytes_read, buf); // todo remove
+        perror_exit("ACK not received");
+    }
 }

@@ -14,6 +14,8 @@
 #include <arpa/inet.h>
 #include <ctype.h>
 
+#define perror2(s, e) fprintf(stderr, "%s: %s\n", s, strerror(e))
+
 #define BUF_SIZE 1024
 
 typedef struct
@@ -38,44 +40,56 @@ typedef struct
     char operation[BUF_SIZE];
 } OperationInfo;
 
-int init_socket(char *server_ip, int server_port);
-void socket_send(int socket, char *buffer);
+int client_socket_init(char *server_ip, int server_port);
+void client_socket_send(int socket, char *buffer);
 void split_first_word(const char *input, char *first_word, char *rest);
 void pull_push(OperationInfo op);
 void queue_operation(OperationInfo operation_info);
 void place_operation(OperationInfo op);
-
-void perror_exit(char *message)
-{
-    perror(message);
-    exit(EXIT_FAILURE);
-}
+void perror_exit(char *message);
+void perror_exit2(char *message, int error);
+void wait_for_ack(int sockfd);
+void send_string(int fd, char string[]);
 
 int main(void)
 {
-    SyncInfo sync_info;
-    strcpy(sync_info.source_dir, "/dir");
-    strcpy(sync_info.source_ip, "127.0.0.1");
-    sync_info.source_port = 8001;
-    strcpy(sync_info.target_dir, "/dir");
-    sync_info.target_port = 8002;
-    strcpy(sync_info.target_ip, "127.0.0.1");
-    OperationInfo operation_info = {sync_info, "ALL", "FULL"};
+    // SyncInfo sync_info;
+    // strcpy(sync_info.source_dir, "/dir");
+    // strcpy(sync_info.source_ip, "127.0.0.1");
+    // sync_info.source_port = 8001;
+    // strcpy(sync_info.target_dir, "/dir");
+    // sync_info.target_port = 8002;
+    // strcpy(sync_info.target_ip, "127.0.0.1");
+    // OperationInfo operation_info = {sync_info, "ALL", "FULL"};
+    while (1)
+    {
+        int source_sock1 = client_socket_init("127.0.0.1", 8001);
+        int source_sock2 = client_socket_init("127.0.0.1", 8001);
+        send_string(source_sock1, "pull /dir/file1.txt");
+        send_string(source_sock2, "pull /dir/file2.txt");
 
-    queue_operation(operation_info);
+        char buf[BUF_SIZE];
+        int bytes_read = read(source_sock1, buf, sizeof(buf) - 1);
+        buf[bytes_read] = '\0';
+        printf("Received1: %s\n", buf);
+
+        bytes_read = read(source_sock2, buf, sizeof(buf) - 1);
+        buf[bytes_read] = '\0';
+        printf("Received2: %s\n", buf);
+    }
     return 0;
 }
 
 void queue_operation(OperationInfo op)
 {
-    int source_sock = init_socket(op.sync_info.source_ip, op.sync_info.source_port);
+    int source_sock = client_socket_init(op.sync_info.source_ip, op.sync_info.source_port);
 
     /* list files from source */
     char buffer[BUF_SIZE];
     strcpy(buffer, "list ");
     strcat(buffer, op.sync_info.source_dir);
     printf("SENT: %s\n", buffer);
-    socket_send(source_sock, buffer);
+    client_socket_send(source_sock, buffer);
 
     char line[FILENAME_MAX];
     int bytes_read, i, line_pos = 0;
@@ -129,8 +143,8 @@ void place_operation(OperationInfo op)
 
 void pull_push(OperationInfo op)
 {
-    int source_sock = init_socket(op.sync_info.source_ip, op.sync_info.source_port);
-    int target_sock = init_socket(op.sync_info.target_ip, op.sync_info.target_port);
+    int source_sock = client_socket_init(op.sync_info.source_ip, op.sync_info.source_port);
+    int target_sock = client_socket_init(op.sync_info.target_ip, op.sync_info.target_port);
 
     /* Send pull command */
     char buf[BUF_SIZE];
@@ -138,8 +152,7 @@ void pull_push(OperationInfo op)
              (int)strlen(op.sync_info.source_dir), op.sync_info.source_dir,
              (int)strlen(op.file_name), op.file_name);
     printf("SENT: %s\n", buf);
-    socket_send(source_sock, buf);
-    sleep(1);
+    client_socket_send(source_sock, buf);
 
     /* Read data */
     int bytes_read = read(source_sock, buf, sizeof(buf) - 1);
@@ -155,7 +168,7 @@ void pull_push(OperationInfo op)
              (int)strlen(op.file_name), op.file_name,
              (int)strlen(chunk_size), chunk_size,
              (int)strlen(rest), rest);
-    socket_send(target_sock, message);
+    client_socket_send(target_sock, message);
     printf("SENT: %s\n", message);
 
     printf("Size: %s\n", chunk_size);
@@ -169,7 +182,7 @@ void pull_push(OperationInfo op)
             perror_exit("read socket");
         buf[bytes_read] = '\0';
         printf("SENT: %s", buf);
-        socket_send(target_sock, buf);
+        client_socket_send(target_sock, buf);
         bytes_to_read -= bytes_read;
     }
 
@@ -177,7 +190,7 @@ void pull_push(OperationInfo op)
     close(target_sock);
 }
 
-int init_socket(char *server_ip, int server_port)
+int client_socket_init(char *server_ip, int server_port)
 {
     int sockfd;
     struct sockaddr_in server_addr;
@@ -201,7 +214,7 @@ int init_socket(char *server_ip, int server_port)
     return sockfd;
 }
 
-void socket_send(int socket, char *buffer)
+void client_socket_send(int socket, char *buffer)
 {
     ssize_t bytes_read = write(socket, buffer, strlen(buffer));
     if (bytes_read == -1)
@@ -227,4 +240,34 @@ void split_first_word(const char *input, char *first_word, char *rest)
 
     // rest of the string
     strcpy(rest, input + i);
+}
+
+void perror_exit(char *message)
+{
+    perror(message);
+    exit(EXIT_FAILURE);
+}
+
+void perror_exit2(char *message, int error)
+{
+    perror2(message, error);
+    exit(EXIT_FAILURE);
+}
+
+void wait_for_ack(int sockfd)
+{
+    char response[BUF_SIZE];
+    response[0] = '\0';
+    int bytes_read;
+    if ((bytes_read = read(sockfd, response, BUF_SIZE)) == -1)
+        perror_exit("read socket");
+    response[bytes_read] = '\0';
+    if (strcmp(response, "ACK") != 0)
+        perror_exit("ACK not received");
+}
+
+void send_string(int fd, char string[])
+{
+    if (write(fd, string, strlen(string)) == -1)
+        perror_exit2("write socket", errno);
 }

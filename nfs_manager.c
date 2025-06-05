@@ -65,8 +65,10 @@ void check_commands(ManagerInfo *manager_info);
 void execute_command(ManagerInfo *manager_info);
 int server_socket_init(int port);
 void console_remote_read(ManagerInfo *manager_info);
-void queue_operation(ManagerInfo *manager_info, OperationInfo operation_info);
+// void queue_operation(ManagerInfo *manager_info, OperationInfo operation_info);
 void string_args_to_sync_info(char *source_string, char *target_string, SyncInfo *sync_info);
+
+void queue_operation(OperationInfo operation_info);
 
 int main(int argc, char *argv[])
 {
@@ -184,9 +186,6 @@ void read_config(ManagerInfo *manager_info)
     while (fscanf(manager_info->config_file, "%s %s", source_string, target_string) == 2) // read config entries
     {
         string_args_to_sync_info(source_string, target_string, &sync_info);
-        printf("=========%s %s\n", source_string, target_string);
-        printf("%s %s %d\n", sync_info.source_dir, sync_info.source_ip, sync_info.source_port);
-        printf("%s %s %d\n", sync_info.target_dir, sync_info.target_ip, sync_info.target_port);
         nfs_add(manager_info, sync_info);
     }
 
@@ -211,11 +210,8 @@ void nfs_add(ManagerInfo *manager_info, SyncInfo sync_info)
         return;
     }
 
-    if (!dir_exists(sync_info.source_dir) || !dir_exists(sync_info.target_dir)) // todo remove
-    {
-        log_end_message(manager_info->console_socket); // if no end message is sent, console hangs
-        return;
-    }
+    printf("1. ADDED: %s %s %d TO %s %s %d\n", sync_info.source_dir, sync_info.source_ip, sync_info.source_port, sync_info.target_dir, sync_info.target_ip, sync_info.target_port);
+    fflush(stdout);
 
     /* Set sync info attributes */
     sync_info.error_num = 0;
@@ -225,20 +221,22 @@ void nfs_add(ManagerInfo *manager_info, SyncInfo sync_info)
     sims_add(manager_info->sync_info_mem_store, sync_info); // add to sync_info_mem_store
 
     OperationInfo operation_info = {sync_info, "ALL", "FULL"};
-    queue_operation(manager_info, operation_info);
+    queue_operation(operation_info);
+
+    sims_remove(manager_info->sync_info_mem_store, sync_info.source_dir); // todo change this
 
     /* log to stdout, logfile and console */
     snprintf(message, sizeof(message), "Added directory: %.*s -> %.*s\n",
              (int)strlen(sync_info.source_dir), sync_info.source_dir,
              (int)strlen(sync_info.target_dir), sync_info.target_dir);
-    log_timed_stdout(message);
+    // log_timed_stdout(message); // todo revert
     log_timed_fd(message, manager_info->logfile_fd);
     if (!sync_info.from_config)
         log_timed_fd(message, manager_info->console_socket); // only send to console if not added from config
 
     snprintf(message, sizeof(message), "Monitoring started for %.*s\n",
              (int)strlen(sync_info.source_dir), sync_info.source_dir);
-    log_timed_stdout(message);
+    // log_timed_stdout(message); // todo revert
     log_timed_fd(message, manager_info->logfile_fd);
     if (!sync_info.from_config)
     {
@@ -303,7 +301,6 @@ void execute_command(ManagerInfo *manager_info)
     switch (manager_info->command.type)
     {
     case ADD:
-        printf("ADD: argument 1: %s, argument 2: %s\n", manager_info->command.arguments[1], manager_info->command.arguments[2]);
         string_args_to_sync_info(manager_info->command.arguments[1], manager_info->command.arguments[2], &sync_info);
         nfs_add(manager_info, sync_info);
         break;
@@ -376,37 +373,6 @@ int server_socket_init(int port)
     return sock;
 }
 
-void queue_operation(ManagerInfo *manager_info, OperationInfo operation_info)
-{
-    DIR *source_dir = opendir(operation_info.sync_info.source_dir);
-    if (source_dir == NULL)
-        perror_exit("opendir");
-
-    struct dirent *file;
-    while ((file = readdir(source_dir)) != NULL)
-    {
-        if (strcmp(file->d_name, ".") == 0 || strcmp(file->d_name, "..") == 0)
-            continue;
-
-        char source_full_path[REPORT_FIELD_SIZE], target_full_path[REPORT_FIELD_SIZE];
-        snprintf(source_full_path, sizeof(source_full_path), "%.*s/%.*s", (int)strlen(operation_info.sync_info.source_dir), operation_info.sync_info.source_dir, (int)strlen(file->d_name), file->d_name);
-
-        OperationInfo op;
-        strcpy(op.file_name, file->d_name);
-        strcpy(op.operation, operation_info.operation);
-        strcpy(op.sync_info.source_dir, operation_info.sync_info.source_dir);
-        strcpy(op.sync_info.target_dir, operation_info.sync_info.target_dir);
-        printf("operation: %s\n", op.operation == ADD ? "add" : "full");
-        printf("source: %.*s\n", (int)strlen(op.sync_info.source_dir), op.sync_info.source_dir);
-        printf("target: %.*s\n", (int)strlen(op.sync_info.target_dir), op.sync_info.target_dir); //todo remove
-        // file_operation(op.sync_info.source_dir, op.sync_info.target_dir, op.file_name, op.operation);
-        place_operation(op);
-    }
-
-    if (closedir(source_dir) == -1)
-        perror_exit("closedir");
-}
-
 void parse_arg_string(const char *arg_string, char *dir, char *ip, int *port)
 {
     char temp[BUF_SIZE];
@@ -440,4 +406,57 @@ void string_args_to_sync_info(char *source_string, char *target_string, SyncInfo
 {
     parse_arg_string(source_string, sync_info->source_dir, sync_info->source_ip, &sync_info->source_port);
     parse_arg_string(target_string, sync_info->target_dir, sync_info->target_ip, &sync_info->target_port);
+}
+
+void queue_operation(OperationInfo op)
+{
+    int source_sock = client_socket_init(op.sync_info.source_ip, op.sync_info.source_port);
+
+    /* list files from source */
+    char buffer[BUF_SIZE];
+    strcpy(buffer, "list ");
+    strcat(buffer, op.sync_info.source_dir);
+    printf("2. SENT FOR SOURCE DIRECTORY %s: %s\n", op.sync_info.source_dir ,buffer);
+    client_socket_send(source_sock, buffer);
+
+    char line[FILENAME_MAX];
+    int bytes_read, i, line_pos = 0;
+    int done = 0;
+    while (!done && (bytes_read = read(source_sock, buffer, sizeof(buffer))) > 0)
+    {
+        for (i = 0; i < bytes_read; ++i)
+        {
+            char c = buffer[i];
+
+            // Check for overflow
+            if (line_pos >= FILENAME_MAX - 1)
+                perror_exit("Filename too long");
+
+            if (c == '\n')
+            {
+                line[line_pos] = '\0'; // null terminate the line
+
+                if (strcmp(line, ".") == 0)
+                {
+                    done = 1;
+                    break;
+                }
+
+                printf("3. GOT FILE NAME: %s\n", line);
+                strcpy(op.file_name, line);
+                place_operation(op);
+
+                line_pos = 0; // Reset for next line
+            }
+            else
+            {
+                line[line_pos++] = c;
+            }
+        }
+    }
+
+    if (bytes_read < 0)
+        perror_exit("read source socket");
+
+    close(source_sock);
 }
