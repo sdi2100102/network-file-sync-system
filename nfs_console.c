@@ -156,6 +156,7 @@ void manager_remote_read()
         {
             *strstr(buffer, END_OF_MESSAGE) = '\0'; // remove END_OF_MESSAGE marker
             printf("%s", buffer);
+            log_untimed_fd(buffer, console.logfile_fd);
             break;
         }
         log_untimed_fd(buffer, console.logfile_fd);

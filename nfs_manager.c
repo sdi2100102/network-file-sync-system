@@ -239,8 +239,10 @@ void nfs_cancel(ManagerInfo *manager_info, SyncInfo sync_info)
     if (sims_find(manager_info->sync_info_mem_store, sync_info.source_dir, &sync_info) == -1)
     {
         /* invalid result to stdout only */
-        snprintf(message, sizeof(message), "Directory not monitored: %.*s\n",
-                 (int)strlen(sync_info.source_dir), sync_info.source_dir);
+        snprintf(message, sizeof(message), "Directory not being synchronized: %.*s@%.*s:%d\n",
+                 (int)strlen(sync_info.source_dir), sync_info.source_dir,
+                 (int)strlen(sync_info.source_ip), sync_info.source_ip,
+                 sync_info.source_port);
         log_timed_stdout(message);
         log_timed_fd(message, manager_info->console_socket);
         log_end_message(manager_info->console_socket);
@@ -254,8 +256,10 @@ void nfs_cancel(ManagerInfo *manager_info, SyncInfo sync_info)
     remove_operations_by_source_dir(sync_info.source_dir);
 
     /* log to stdout, logfile and console */
-    snprintf(message, sizeof(message), "Monitoring stopped for %.*s\n",
-             (int)strlen(sync_info.source_dir), sync_info.source_dir);
+    snprintf(message, sizeof(message), "Synchronization stopped for %.*s@%.*s:%d\n",
+             (int)strlen(sync_info.source_dir), sync_info.source_dir,
+             (int)strlen(sync_info.source_ip), sync_info.source_ip,
+             sync_info.source_port);
     log_timed_stdout(message);
     log_timed_fd(message, manager_info->logfile_fd);
     log_timed_fd(message, manager_info->console_socket);
