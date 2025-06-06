@@ -4,13 +4,24 @@
 #include <string.h>
 #include <pthread.h>
 #include <stdbool.h>
+#include <errno.h>
+#include <time.h>
+#include <sys/stat.h>
+#include <dirent.h>
+#include <fcntl.h>
+#include <poll.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netdb.h>
+#include <arpa/inet.h>
+#include <ctype.h>
+
 #include "nfs_workers.h"
 #include "exec_report.h"
+#include "utils.h"
 
 #include "debug.h"
-
-#include "utils.h"
-#include "file_operation.h"
 
 typedef struct
 {
@@ -38,6 +49,8 @@ int read_file_size(int source_sock);
 void recieve_ack(int manager_socket);
 void send_push_command(OperationInfo op, int target_sock);
 void send_file_size(int manager_socket, int file_size);
+void worker_error(ExecReport *exec_report, char *error_message);
+int worker_to_client_socket_init(char *server_ip, int server_port);
 
 void perform_operation(OperationInfo op)
 {
@@ -163,11 +176,19 @@ void remove_operations_by_source_dir(const char *source_dir)
     pthread_mutex_unlock(&queue.mutex);
 }
 
-void pull_push(OperationInfo op)
+void pull_push(OperationInfo op) // todo change for perform_operation or chunk transfer
 {
+    /* Initialize exec reports */
+    ExecReport pull_report = initialize_exec_report(op, pthread_self(), "PULL");
+
     /* Open sockets */
-    int source_sock = client_socket_init(op.sync_info.source_ip, op.sync_info.source_port);
-    int target_sock = client_socket_init(op.sync_info.target_ip, op.sync_info.target_port);
+    int source_sock = worker_to_client_socket_init(op.sync_info.source_ip, op.sync_info.source_port);
+    if (source_sock < 0)
+    {
+        worker_error(&pull_report, "Failed to connect to source");
+        return;
+    }
+    int target_sock = worker_to_client_socket_init(op.sync_info.target_ip, op.sync_info.target_port);
 
     /* Write to source: pull <path> */
     send_pull_command(op, source_sock);
@@ -223,81 +244,9 @@ void pull_push(OperationInfo op)
         perror_exit("close");
     if (close(source_sock) == -1)
         perror_exit("close");
-}
 
-void pull_push_pull(OperationInfo op)
-{
-    // PULL TEST
-
-    long int thread_id = pthread_self(); // todo remove
-
-    /* Open socket */
-    int source_sock = client_socket_init(op.sync_info.source_ip, op.sync_info.source_port);
-
-    /* Send pull command */
-    send_pull_command(op, source_sock);
-
-    /* Read file size */
-    int file_size = read_file_size(source_sock);
-
-    DEBUG_PRINT("6. FILE SIZE: %d | thread id: %ld | sock fd %d", file_size, pthread_self(), source_sock); // todo remove
-
-    /* Send ACK before reading data */
-    client_socket_send(source_sock, "ACK");
-
-    DEBUG_PRINT("7. ACK SENT | thread id: %ld | sock fd %d", pthread_self(), source_sock); // todo remove
-
-    /* Read data */
-    int bytes_to_read = file_size;
-    char buf[BUF_SIZE];
-    while (bytes_to_read > 0)
-    {
-        int bytes_read = read(source_sock, buf, sizeof(buf) - 1);
-        buf[bytes_read] = '\0';
-        bytes_to_read -= bytes_read;
-        // client_socket_send(source_sock, buf);
-
-        DEBUG_PRINT("8. DATA READ: %s | thread id: %ld | sock fd %d", buf, pthread_self(), source_sock); // todo remove
-    }
-
-    /* Close socket */
-    if (close(source_sock) == -1)
-        perror_exit("close");
-}
-
-void pull_push_push(OperationInfo op)
-{
-    // PUSH TEST
-
-    char *test_string = "This is a test string";
-
-    /* Open socket */
-    int target_sock = client_socket_init(op.sync_info.target_ip, op.sync_info.target_port);
-
-    /* Send push command */
-    send_push_command(op, target_sock);
-
-    /* Read ack */
-    recieve_ack(target_sock);
-
-    DEBUG_PRINT("6. ACK RECEIVED | thread id: %ld | sock fd %d", pthread_self(), target_sock); // todo remove
-
-    /* Send file size */
-    send_file_size(target_sock, strlen(test_string)); // todo replace with file size
-
-    /* Read ack */
-    recieve_ack(target_sock);
-
-    /* Send data */
-    for (int i = 0; i < 10; i++)
-    {
-        client_socket_send(target_sock, test_string);
-        DEBUG_PRINT("8. SENT: %s", test_string); // todo remove
-    }
-
-    /* Close socket */
-    if (close(target_sock) == -1)
-        perror_exit("close");
+    /* Finish exec reports */
+    complete_exec_report_success(&pull_report, file_size);
 }
 
 void send_pull_command(OperationInfo op, int source_sock)
@@ -346,4 +295,42 @@ void send_file_size(int manager_socket, int file_size)
     char buf[BUF_SIZE];
     snprintf(buf, BUF_SIZE, "%d ", file_size);
     client_socket_send(manager_socket, buf);
+}
+
+int worker_to_client_socket_init(char *server_ip, int server_port)
+{
+    int sockfd;
+    struct sockaddr_in server_addr;
+
+    // Create socket
+    sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sockfd < 0)
+        return -1;
+
+    // Configure server address
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(server_port);
+    if (inet_pton(AF_INET, server_ip, &server_addr.sin_addr) <= 0)
+        return -1;
+
+    // Connect to server
+    if (connect(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
+        return -1;
+
+    return sockfd;
+}
+
+void worker_error(ExecReport *exec_report, char *error_message)
+{
+    /* Debug message */
+    char message[BUF_SIZE];
+    strcat(message, error_message);
+    strcat(message, ": ");
+    strcat(message, strerror(errno));
+    DEBUG_PRINT("Error in worker thread %ld: %s", pthread_self(), message);
+
+    /* Log message */
+    complete_exec_report_failure(exec_report, strerror(errno));
+    return;
 }

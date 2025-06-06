@@ -9,86 +9,79 @@
 #include "exec_report.h"
 #include "utils.h"
 
+#include "nfs_log.h"
+
 #define BUF_SIZE 1024
 
-void get_file_name(char *path, char *file_name)
-{
-    char *base_name = strrchr(path, '/');
-    if (base_name)
-        strcpy(file_name, base_name + 1);
-    else
-        strcpy(file_name, path);
-}
+void log_exec_report(ExecReport *exec_report);
 
-void dir_error(ExecReport* exec_report, char *dir)
+ExecReport initialize_exec_report(OperationInfo op, pthread_t thread_id, char *operation_type)
 {
-    exec_report->copied = -1; // means directory error
-    strcpy(exec_report->result, "FAILED");
-    snprintf(exec_report->details, sizeof(exec_report->details), "Directory %s: %s\n", dir, strerror(errno));
-    exec_report->error_num++;
-}
-
-ExecReport initialize_exec_report(char *source_path, char *target_path, char *file_name, char *operation)
-{
-    ExecReport exec_report;
-
-    strcpy(exec_report.source_dir, source_path);
-    strcpy(exec_report.target_dir, target_path);
-    strcpy(exec_report.operation, operation);
-    strcpy(exec_report.file_name, file_name);
+    ExecReport exec_report = {.thread_id = thread_id, .op = op};
+    strcpy(exec_report.operation_type, operation_type);
     strcpy(exec_report.result, "SUCCESS");
-    exec_report.copied = 0;
-    exec_report.skipped = 0;
     exec_report.details[0] = '\0';
-    exec_report.error_num = 0;
 
     return exec_report;
 }
 
-void file_error(ExecReport* exec_report, char *path)
+void complete_exec_report_failure(ExecReport *exec_report, char *error_message)
 {
-    strcpy(exec_report->result, "PARTIAL");
-    exec_report->skipped++;
-    char file_name[REPORT_FIELD_SIZE / 2];
-    get_file_name(path, file_name);
-    snprintf(exec_report->details, sizeof(exec_report->details), "File: %s - %s", file_name, strerror(errno));
-    exec_report->error_num++;
+    /* Create details string */
+    strcpy(exec_report->result, "FAILED");
+    snprintf(exec_report->details, sizeof(exec_report->details), "File: %.*s - %.*s",
+             (int)strlen(exec_report->op.file_name), exec_report->op.file_name,
+             (int)strlen(error_message), error_message);
+
+    log_exec_report(exec_report);
 }
 
-void copy_success(ExecReport* exec_report, char *path)
+void complete_exec_report_success(ExecReport *exec_report, int bytes_copied)
 {
-    exec_report->copied++;
-    char file_name[REPORT_FIELD_SIZE / 2];
-    get_file_name(path, file_name);
-    snprintf(exec_report->details, sizeof(exec_report->details), "File: %s", file_name);
+
+    /* Create details string */
+    char details[BUF_SIZE];
+    if (strcmp(exec_report->operation_type, "PULL") == 0)
+    {
+        snprintf(details, sizeof(details), "%d bytes pulled", bytes_copied);
+    }
+    else if (strcmp(exec_report->operation_type, "PUSH") == 0)
+    {
+        snprintf(details, sizeof(details), "%d bytes pushed", bytes_copied);
+    }
+    strcpy(exec_report->details, details);
+
+    /* Log the report */
+    log_exec_report(exec_report);
 }
 
-void complete_exec_report(ExecReport* exec_report)
+void log_exec_report(ExecReport *exec_report)
 {
-    if (strcmp(exec_report->operation, "FULL") == 0 && exec_report->copied != -1)
-        if (exec_report->copied == 0)
-            snprintf(exec_report->details, sizeof(exec_report->details), "No files copied. Files skipped: %d", exec_report->skipped);
-        else if (exec_report->skipped == 0)
-            snprintf(exec_report->details, sizeof(exec_report->details), "Files copied: %d", exec_report->copied);
-        else
-            snprintf(exec_report->details, sizeof(exec_report->details), "Files copied: %d. Files skipped: %d", exec_report->copied, exec_report->skipped);
 
-    if (exec_report->copied == 0)
-        strcpy(exec_report->result, "FAILED");
+    /* Create source and target strings */
+    char source[BUF_SIZE];
+    snprintf(source, sizeof(source), "%.*s/%.*s@%.*s:%d",
+             (int)strlen(exec_report->op.sync_info.source_dir), exec_report->op.sync_info.source_dir,
+             (int)strlen(exec_report->op.file_name), exec_report->op.file_name,
+             (int)strlen(exec_report->op.sync_info.source_ip), exec_report->op.sync_info.source_ip,
+             exec_report->op.sync_info.source_port);
+    char target[BUF_SIZE];
+    snprintf(target, sizeof(target), "%.*s/%.*s@%.*s:%d",
+             (int)strlen(exec_report->op.sync_info.target_dir), exec_report->op.sync_info.target_dir,
+             (int)strlen(exec_report->op.file_name), exec_report->op.file_name,
+             (int)strlen(exec_report->op.sync_info.target_ip), exec_report->op.sync_info.target_ip,
+             exec_report->op.sync_info.target_port);
 
-    exec_report->worker_pid = getpid();
-
+    /* Create final message */
     char message[BUF_SIZE];
-    snprintf(message, sizeof(message), "[%.*s] [%.*s] [%d] [%.*s] [%.*s] [%.*s]\n",
-             (int)strlen(exec_report->source_dir), exec_report->source_dir,
-             (int)strlen(exec_report->target_dir), exec_report->target_dir,
-             exec_report->worker_pid,
-             (int)strlen(exec_report->operation), exec_report->operation,
+    snprintf(message, sizeof(message), "[%.*s] [%.*s] [%ld] [%.*s] [%.*s] [%.*s]\n",
+             (int)strlen(source), source,
+             (int)strlen(target), target,
+             exec_report->thread_id,
+             (int)strlen(exec_report->operation_type), exec_report->operation_type,
              (int)strlen(exec_report->result), exec_report->result,
              (int)strlen(exec_report->details), exec_report->details);
 
-    // if (write(STDOUT_FILENO, &message, strlen(message)) != strlen(message))
-        // perror_exit("write");
-
-    printf("%s", message);
+    /* Log the message */
+    log_timed_fd(message, exec_report->op.logfile_fd);
 }

@@ -27,7 +27,6 @@
 #include "nfs_log.h"
 #include "exec_report.h"
 #include "nfs_workers.h"
-#include "file_operation.h"
 
 #include "debug.h"
 
@@ -227,7 +226,7 @@ void nfs_add(ManagerInfo *manager_info, SyncInfo sync_info)
 
     sims_add(manager_info->sync_info_mem_store, sync_info); // add to sync_info_mem_store
 
-    OperationInfo operation_info = {sync_info, "ALL", "FULL"};
+    OperationInfo operation_info = {.sync_info = sync_info, .logfile_fd = manager_info->logfile_fd};
     queue_operation(manager_info, operation_info);
 
     sims_remove(manager_info->sync_info_mem_store, sync_info.source_dir); // todo change this

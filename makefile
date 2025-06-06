@@ -12,7 +12,7 @@ CONSOLE = nfs_console
 SOURCE_CLIENT = client_test/source/nfs_client
 TARGET_CLIENT = client_test/target/nfs_client
 
-MANAGER_OBJS = nfs_manager.o utils.o nfs_log.o sync_info_mem_store.o command.o file_operation.o nfs_workers.o exec_report.o
+MANAGER_OBJS = nfs_manager.o utils.o nfs_log.o sync_info_mem_store.o command.o nfs_workers.o exec_report.o
 CONSOLE_OBJS = nfs_console.o utils.o nfs_log.o command.o
 
 $(MANAGER): $(MANAGER_OBJS)
@@ -35,6 +35,7 @@ manager_full: # todo remove
 	$(MAKE) manager_run
 
 debug:
+	$(MAKE) clean
 	$(MAKE) CFLAGS='-g -DDEBUG'
 
 manager_debug:

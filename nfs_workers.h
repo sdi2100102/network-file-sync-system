@@ -9,7 +9,7 @@ typedef struct
 {
     SyncInfo sync_info;
     char file_name[BUF_SIZE];
-    char operation[BUF_SIZE];
+    int logfile_fd;
 } OperationInfo;
 
 void workers_init(int num_workers, int queue_size);

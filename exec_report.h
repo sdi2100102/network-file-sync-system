@@ -2,26 +2,24 @@
 #define EXEC_REPORT_H
 
 #include <time.h>
+#include <pthread.h>
 
-#define REPORT_FIELD_SIZE 128
+#include "nfs_workers.h"
+
+#define REPORT_FIELD_SIZE 1024
 
 typedef struct
 {
-    pid_t worker_pid;
-    char source_dir[REPORT_FIELD_SIZE];
-    char target_dir[REPORT_FIELD_SIZE];
-    char file_name[REPORT_FIELD_SIZE];
-    char operation[REPORT_FIELD_SIZE];
+    OperationInfo op;
+    pthread_t thread_id;
+    char operation_type[REPORT_FIELD_SIZE];
+
     char result[REPORT_FIELD_SIZE];
     char details[REPORT_FIELD_SIZE];
-    int copied, skipped;
-    int error_num;
 } ExecReport;
 
-void complete_exec_report(ExecReport* exec_report);
-ExecReport initialize_exec_report(char *source_path, char *target_path, char *file_name, char *operation);
-void copy_success(ExecReport* exec_report, char *);
-void file_error(ExecReport* exec_report, char *);
-void dir_error(ExecReport* exec_report, char *);
+ExecReport initialize_exec_report(OperationInfo op, pthread_t thread_id, char *operation_type);
+void complete_exec_report_success(ExecReport *exec_report, int bytes_copied);
+void complete_exec_report_failure(ExecReport *exec_report, char *error_message);
 
 #endif // EXEC_REPORT_H
