@@ -5,3 +5,5 @@
 nfs_manager
 nfs_worker
 nfs_console
+client_test/source/nfs_client
+client_test/target/nfs_client

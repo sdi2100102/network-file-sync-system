@@ -92,4 +92,3 @@ void complete_exec_report(ExecReport* exec_report)
 
     printf("%s", message);
 }
-

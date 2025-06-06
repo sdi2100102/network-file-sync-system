@@ -29,6 +29,8 @@
 #include "nfs_workers.h"
 #include "file_operation.h"
 
+#include "debug.h"
+
 #define BUF_SIZE 1024
 #define READ 0
 #define WRITE 1
@@ -210,7 +212,7 @@ void nfs_add(ManagerInfo *manager_info, SyncInfo sync_info)
         return;
     }
 
-    printf("1. ADDED: %s %s %d TO %s %s %d\n", sync_info.source_dir, sync_info.source_ip, sync_info.source_port, sync_info.target_dir, sync_info.target_ip, sync_info.target_port);
+    DEBUG_PRINT("Adding directory: %s %s %d to %s %s %d", sync_info.source_dir, sync_info.source_ip, sync_info.source_port, sync_info.target_dir, sync_info.target_ip, sync_info.target_port);
     fflush(stdout);
 
     /* Set sync info attributes */
@@ -416,7 +418,7 @@ void queue_operation(OperationInfo op)
     char buffer[BUF_SIZE];
     strcpy(buffer, "list ");
     strcat(buffer, op.sync_info.source_dir);
-    printf("2. SENT FOR SOURCE DIRECTORY %s: %s\n", op.sync_info.source_dir ,buffer);
+    DEBUG_PRINT("2. SENT FOR SOURCE DIRECTORY %s: %s", op.sync_info.source_dir ,buffer);
     client_socket_send(source_sock, buffer);
 
     char line[FILENAME_MAX];
@@ -442,7 +444,7 @@ void queue_operation(OperationInfo op)
                     break;
                 }
 
-                printf("3. GOT FILE NAME: %s\n", line);
+                DEBUG_PRINT("3. GOT FILE NAME: %s", line);
                 strcpy(op.file_name, line);
                 place_operation(op);
 

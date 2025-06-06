@@ -7,6 +7,8 @@
 #include "nfs_workers.h"
 #include "exec_report.h"
 
+#include "debug.h"
+
 #include "utils.h"
 #include "file_operation.h"
 
@@ -40,13 +42,6 @@ void send_file_size(int manager_socket, int file_size);
 void perform_operation(OperationInfo op)
 {
     pull_push(op);
-    // printf("===================\n"); // todo remove
-    // printf("perform operation: \n");
-    // printf("source dir: %s\n", op.sync_info.source_dir);
-    // printf("target dir: %s\n", op.sync_info.target_dir);
-    // printf("file name: %s\n", op.file_name);
-    // printf("operation: %s\n", op.operation);
-    // file_operation(op.sync_info.source_dir, op.sync_info.target_dir, op.file_name, op.operation); // todo replace with client communication
 }
 
 static void *worker_function(void *arg)
@@ -102,7 +97,7 @@ void workers_init(int num_workers, int queue_size)
 
 void place_operation(OperationInfo op)
 {
-    printf("4. PLACED OPERATION FOR THREADS: %s, %s, %s\n", op.sync_info.target_dir, op.sync_info.source_dir, op.file_name);
+    DEBUG_PRINT("4. placed operation for threads: %s, %s, %s", op.sync_info.target_dir, op.sync_info.source_dir, op.file_name);
 
     pthread_mutex_lock(&queue.mutex);
 
@@ -177,37 +172,37 @@ void pull_push(OperationInfo op)
     /* Write to source: pull <path> */
     send_pull_command(op, source_sock);
 
-    printf("5. PULL COMMAND SENT | thread id: %ld | sock fd %d\n", pthread_self(), source_sock); // todo remove
+    DEBUG_PRINT("5. pull command sent | thread id: %ld | sock fd %d", pthread_self(), source_sock);
 
     /* Read from source: <chunk_size> */
     int file_size = read_file_size(source_sock);
 
-    printf("6. FILE SIZE FROM SOURCE: %d | thread id: %ld | sock fd %d\n", file_size, pthread_self(), source_sock); // todo remove
+    DEBUG_PRINT("6. file size from source: %d | thread id: %ld | sock fd %d", file_size, pthread_self(), source_sock);
 
     /* Write to source: ACK */
     client_socket_send(source_sock, "ACK");
 
-    printf("7. ACK SENT TO SOURCE | thread id: %ld | sock fd %d\n", pthread_self(), source_sock); // todo remove
+    DEBUG_PRINT("7. ack sent to source | thread id: %ld | sock fd %d", pthread_self(), source_sock);
 
     /* Write to target: push <path> */
     send_push_command(op, target_sock);
 
-    printf("8. PUSH COMMAND SENT:\n"); // todo remove
+    DEBUG_PRINT("8. push command sent:\n");
 
     /* Read from target: ACK */
     recieve_ack(target_sock);
 
-    printf("9. ACK RECIEVED FROM TARGET | thread id: %ld | sock fd %d\n", pthread_self(), target_sock); // todo remove
+    DEBUG_PRINT("9. ack recieved from target | thread id: %ld | sock fd %d", pthread_self(), target_sock);
 
     /* Write to target: <file_size> */
     send_file_size(target_sock, file_size);
 
-    printf("10. FILE SIZE SENT: %d\n", file_size); // todo remove
+    DEBUG_PRINT("10. file size sent: %d\n", file_size);
 
     /* Read from target: ACK */
     recieve_ack(target_sock);
 
-    printf("11. ACK RECIEVED FROM TARGET | thread id: %ld | sock fd %d\n", pthread_self(), target_sock); // todo remove
+    DEBUG_PRINT("11. ack recieved from target | thread id: %ld | sock fd %d", pthread_self(), target_sock);
 
     /* Transfer data from source to target */
     int bytes_to_read = file_size;
@@ -220,7 +215,7 @@ void pull_push(OperationInfo op)
         client_socket_send(target_sock, buf);
         bytes_to_read -= bytes_read;
 
-        printf("12. BYTES READ: %d | BYTES TO READ: %d | thread id: %ld | sock fd %d\n", bytes_read, bytes_to_read, pthread_self(), target_sock); // todo remove
+        DEBUG_PRINT("12. bytes read: %d | bytes to read: %d | thread id: %ld | sock fd %d", bytes_read, bytes_to_read, pthread_self(), target_sock);
     }
 
     /* Close sockets */
@@ -245,12 +240,12 @@ void pull_push_pull(OperationInfo op)
     /* Read file size */
     int file_size = read_file_size(source_sock);
 
-    printf("6. FILE SIZE: %d | thread id: %ld | sock fd %d\n", file_size, pthread_self(), source_sock); // todo remove
+    DEBUG_PRINT("6. FILE SIZE: %d | thread id: %ld | sock fd %d", file_size, pthread_self(), source_sock); // todo remove
 
     /* Send ACK before reading data */
     client_socket_send(source_sock, "ACK");
 
-    printf("7. ACK SENT | thread id: %ld | sock fd %d\n", pthread_self(), source_sock); // todo remove
+    DEBUG_PRINT("7. ACK SENT | thread id: %ld | sock fd %d", pthread_self(), source_sock); // todo remove
 
     /* Read data */
     int bytes_to_read = file_size;
@@ -262,7 +257,7 @@ void pull_push_pull(OperationInfo op)
         bytes_to_read -= bytes_read;
         // client_socket_send(source_sock, buf);
 
-        printf("8. DATA READ: %s | thread id: %ld | sock fd %d\n", buf, pthread_self(), source_sock); // todo remove
+        DEBUG_PRINT("8. DATA READ: %s | thread id: %ld | sock fd %d", buf, pthread_self(), source_sock); // todo remove
     }
 
     /* Close socket */
@@ -285,7 +280,7 @@ void pull_push_push(OperationInfo op)
     /* Read ack */
     recieve_ack(target_sock);
 
-    printf("6. ACK RECEIVED | thread id: %ld | sock fd %d\n", pthread_self(), target_sock); // todo remove
+    DEBUG_PRINT("6. ACK RECEIVED | thread id: %ld | sock fd %d", pthread_self(), target_sock); // todo remove
 
     /* Send file size */
     send_file_size(target_sock, strlen(test_string)); // todo replace with file size
@@ -297,60 +292,13 @@ void pull_push_push(OperationInfo op)
     for (int i = 0; i < 10; i++)
     {
         client_socket_send(target_sock, test_string);
-        printf("8. SENT: %s\n", test_string); // todo remove
+        DEBUG_PRINT("8. SENT: %s", test_string); // todo remove
     }
 
     /* Close socket */
     if (close(target_sock) == -1)
         perror_exit("close");
 }
-
-// void pull_push(OperationInfo op)
-// {
-//     int source_sock = client_socket_init(op.sync_info.source_ip, op.sync_info.source_port);
-//     int target_sock = client_socket_init(op.sync_info.target_ip, op.sync_info.target_port);
-
-//     /* Send pull command */
-//     char buf[BUF_SIZE];
-//     snprintf(buf, BUF_SIZE, "pull %.*s/%.*s",
-//              (int)strlen(op.sync_info.source_dir), op.sync_info.source_dir,
-//              (int)strlen(op.file_name), op.file_name);
-//     printf("SENT: %s\n", buf);
-//     client_socket_send(source_sock, buf);
-//     sleep(1);
-
-//     /* Read data */
-//     int bytes_read = read(source_sock, buf, sizeof(buf) - 1);
-//     buf[bytes_read] = '\0';
-
-//     char chunk_size[BUF_SIZE];
-//     char rest[BUF_SIZE];
-//     split_first_word(buf, chunk_size, rest);
-
-//     char message[BUF_SIZE];
-//     snprintf(message, BUF_SIZE, "push %.*s/%.*s %.*s %.*s",
-//              (int)strlen(op.sync_info.target_dir), op.sync_info.target_dir,
-//              (int)strlen(op.file_name), op.file_name,
-//              (int)strlen(chunk_size), chunk_size,
-//              (int)strlen(rest), rest);
-//     client_socket_send(target_sock, message);
-//     printf("SENT: %s\n", message);
-
-//     int bytes_to_read = atoi(chunk_size);
-//     bytes_to_read -= strlen(rest);
-//     while (bytes_to_read > 0)
-//     {
-//         bytes_read = read(source_sock, buf, sizeof(buf) - 1);
-//         if (bytes_read == -1)
-//             perror_exit("read socket");
-//         buf[bytes_read] = '\0';
-//         client_socket_send(target_sock, buf);
-//         bytes_to_read -= bytes_read;
-//     }
-
-//     close(source_sock);
-//     close(target_sock);
-// }
 
 void send_pull_command(OperationInfo op, int source_sock)
 {
@@ -378,7 +326,7 @@ void recieve_ack(int manager_socket)
     buf[bytes_read] = '\0';
     if (strcmp(buf, "ACK") != 0)
     {
-        printf("Instead of ack, Recieved (in %d bytes): %s\n", bytes_read, buf); // todo remove
+        printf("Instead of ack, Recieved (in %d bytes): %s", bytes_read, buf); // todo remove
         perror_exit("ACK not received");
     }
 }
