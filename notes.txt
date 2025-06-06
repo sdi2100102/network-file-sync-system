@@ -1,0 +1,280 @@
+
+testing:
+
+    OK multiple client pairs
+    big files
+    many files
+    remote source target
+    change manager args
+
+=---------------- PULL ONLY
+
+manager w: pull dir
+
+client r: pull dir
+client w: chunk size
+
+manager r: chunk size
+manager w: ACK
+
+client r: ACK
+client w: data
+manager r: data
+client w: data
+manager r:data
+...
+
+=---------------- PUSH ONLY
+
+manager w: push path
+
+client r: push path
+client w: ACK
+
+manager r: ACK
+manager w: size
+
+client r: size
+client w; ACK
+
+manager r: ACK
+
+manager w: data
+client r: data
+...
+
+=----------------------- BOTH ALL 3 SIDES
+
+manager write source: pull dir
+
+source read: pull dir
+source write: chunk size
+
+manager read source: chunk size
+manager write source: ACK
+
+source read: ACK
+
+- 
+
+manager write target: push path
+
+target read: push path
+target write: ack
+
+manager read target: ack
+manager write target: size
+
+target read: size
+target write: ack
+
+manager read: ack
+
+-
+
+source write: data
+
+manager read source: data
+manager write target: data
+
+target read: data
+
+=---------------------- FULL ONLY MANAGER
+
+manager write source: pull dir
+
+manager read source: chunk size
+manager write source: ACK
+
+- 
+
+manager write target: push path
+
+manager read target: ack
+manager write target: size
+
+manager read: ack
+
+-
+
+manager read source: data
+manager write target: data
+
+=----------------------- FULL SOURCE
+
+source read: pull dir
+source write: chunk size
+
+source read: ACK
+
+- 
+
+source write: data
+
+=------------------------ FULL TARGET
+
+target read: push path
+target write: ack
+
+target read: size
+target write: ack
+
+-
+
+target read: data
+
+
+=-----------------
+
+server send ( list command )
+
+client read ( list command )
+
+while
+	client send ( file name )
+	
+	server read ( file name )
+
+client send ( . )
+server read ( . )
+
+
+server close( client socket )
+client close( server socket )
+	
+-----------
+SERVERSIDE
+
+server send( list command )
+while
+    server read( file name )
+
+server read(.)
+close(client)
+
+------------
+CLIENTSIDE
+
+client read(command)
+while
+    client send file
+client send (.)
+close( server socket)
+
+=========================
+PULL
+
+server send(pull command)
+
+client read(pull command)
+
+client send(<size> <first data>)
+
+server read(<size> <first data>)
+
+while
+
+=================================
+GENERAL
+
+- an kolaei h console poly pithano o manager na mn esteile pisw pote end message
+
+- otan ftiaxnw thread to main thread eksakolouthei na trexei k mporei na kanei pragmata
+
+- tha mporousa na exw single main thread xwris na ftiaksw xwristo pera apo to programma itself.
+
+- diaforetiko manager_info se kathe thread.
+
+- threads share address space -> can all see globals
+
+- remember oti exeis allages na kaneis mn apla allakseis oti ekanes stin main
+
+
+
+SERVER SOCKET
+
+#include <stdio.h>
+#include <sys/wait.h>	     /* sockets */
+#include <sys/types.h>	     /* sockets */
+#include <sys/socket.h>	     /* sockets */
+#include <netinet/in.h>	     /* internet sockets */
+#include <netdb.h>	         /* gethostbyaddr */
+#include <unistd.h>	         /* fork */		
+#include <stdlib.h>	         /* exit */
+#include <ctype.h>	         /* toupper */
+#include <signal.h>          /* signal */
+
+create socket
+
+    int listening_sock;
+
+    if ((listening_sock = socket(AF_INET, SOCK_STREAM, 0)) < 0)
+        perror_exit("socket");
+
+bind socket to port
+
+    struct sockaddr_in server;
+    int port;
+
+    struct sockaddr *serverptr=(struct sockaddr *)&server;
+    server.sin_family = AF_INET;       /* Internet domain */
+    server.sin_addr.s_addr = htonl(INADDR_ANY);
+    server.sin_port = htons(port);   
+    /* Bind socket to address */
+    if (bind(listening_sock, serverptr, sizeof(server)) < 0)
+        perror_exit("bind");
+
+listen
+
+    if (listen(listening_sock, 5) < 0) perror_exit("listen");
+
+accept
+
+    int sock_fd;
+    if ((sock_fd = accept(listening_sock, clientptr, &clientlen)) < 0) perror_exit("accept");
+
+
+close
+
+    close(listening_sock);
+    close(sock_fd);
+
+=====================================
+
+CLIENT SOCKET
+
+#include <stdio.h>
+#include <sys/types.h>	     /* sockets */
+#include <sys/socket.h>	     /* sockets */
+#include <netinet/in.h>	     /* internet sockets */
+#include <unistd.h>          /* read, write, close */
+#include <netdb.h>	         /* gethostbyaddr */
+#include <stdlib.h>	         /* exit */
+#include <string.h>	         /* strlen */
+
+create socket
+
+    int sock;
+
+    if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0)
+    perror_exit("socket");
+
+connect
+
+    struct hostent *host;
+    int port;
+    struct sockaddr_in server;
+
+	/* Find server address */
+    if ((host = gethostbyname(hostname)) == NULL) {	
+	   herror("gethostbyname"); exit(1);
+    }
+    port = atoi(port); /*Convert port number to integer*/
+    server.sin_family = AF_INET;       /* Internet domain */
+    memcpy(&server.sin_addr, host->h_addr, host->h_length);
+    server.sin_port = htons(port);         /* Server port */
+    /* Initiate connection */
+    if (connect(sock, &server, sizeof(server)) < 0)
+	   perror_exit("connect");
+
+=====================================

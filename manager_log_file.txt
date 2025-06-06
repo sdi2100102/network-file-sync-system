@@ -1,0 +1,3 @@
+[2025-06-06 17:46:27] Added file: /source_dir/file1.txt@127.0.0.1:8001 -> /dir/file1.txt@127.0.0.1:8002
+[2025-06-06 17:46:27] [/source_dir/file1.txt@127.0.0.1:8001] [/dir/file1.txt@127.0.0.1:8002] [139827273463552] [PULL] [SUCCESS] [2456 bytes pulled]
+[2025-06-06 17:46:27] [/source_dir/file1.txt@127.0.0.1:8001] [/dir/file1.txt@127.0.0.1:8002] [139827273463552] [PUSH] [SUCCESS] [2456 bytes pushed]
