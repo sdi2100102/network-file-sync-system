@@ -68,7 +68,7 @@ void execute_command(ManagerInfo *manager_info);
 int server_socket_init(int port);
 void console_remote_read(ManagerInfo *manager_info);
 // void queue_operation(ManagerInfo *manager_info, OperationInfo operation_info);
-void string_args_to_sync_info(char *source_string, char *target_string, SyncInfo *sync_info);
+int string_args_to_sync_info(char *source_string, char *target_string, SyncInfo *sync_info);
 
 void queue_operation(OperationInfo operation_info);
 
@@ -187,7 +187,8 @@ void read_config(ManagerInfo *manager_info)
     char target_string[BUF_SIZE];
     while (fscanf(manager_info->config_file, "%s %s", source_string, target_string) == 2) // read config entries
     {
-        string_args_to_sync_info(source_string, target_string, &sync_info);
+        if (string_args_to_sync_info(source_string, target_string, &sync_info) == -1)
+            continue; // ignore entries with incorrect format
         nfs_add(manager_info, sync_info);
     }
 
@@ -231,14 +232,14 @@ void nfs_add(ManagerInfo *manager_info, SyncInfo sync_info)
     snprintf(message, sizeof(message), "Added directory: %.*s -> %.*s\n",
              (int)strlen(sync_info.source_dir), sync_info.source_dir,
              (int)strlen(sync_info.target_dir), sync_info.target_dir);
-    // log_timed_stdout(message); // todo revert
+    log_timed_stdout(message);
     log_timed_fd(message, manager_info->logfile_fd);
     if (!sync_info.from_config)
         log_timed_fd(message, manager_info->console_socket); // only send to console if not added from config
 
     snprintf(message, sizeof(message), "Monitoring started for %.*s\n",
              (int)strlen(sync_info.source_dir), sync_info.source_dir);
-    // log_timed_stdout(message); // todo revert
+    log_timed_stdout(message);
     log_timed_fd(message, manager_info->logfile_fd);
     if (!sync_info.from_config)
     {
@@ -303,7 +304,8 @@ void execute_command(ManagerInfo *manager_info)
     switch (manager_info->command.type)
     {
     case ADD:
-        string_args_to_sync_info(manager_info->command.arguments[1], manager_info->command.arguments[2], &sync_info);
+        if (string_args_to_sync_info(manager_info->command.arguments[1], manager_info->command.arguments[2], &sync_info) == -1)
+            return; // ignore arguments with incorrect format
         nfs_add(manager_info, sync_info);
         break;
     case CANCEL:
@@ -375,7 +377,7 @@ int server_socket_init(int port)
     return sock;
 }
 
-void parse_arg_string(const char *arg_string, char *dir, char *ip, int *port)
+int parse_arg_string(const char *arg_string, char *dir, char *ip, int *port)
 {
     char temp[BUF_SIZE];
     strncpy(temp, arg_string, BUF_SIZE - 1);
@@ -386,10 +388,10 @@ void parse_arg_string(const char *arg_string, char *dir, char *ip, int *port)
 
     if (!at || !colon || colon < at)
     {
-        fprintf(stderr, "Invalid argument format: %s\n", arg_string);
+        DEBUG_PRINT("Invalid argument format: %s", arg_string);
         dir[0] = ip[0] = '\0';
         *port = -1;
-        return;
+        return -1;
     }
 
     *at = '\0';
@@ -402,12 +404,18 @@ void parse_arg_string(const char *arg_string, char *dir, char *ip, int *port)
     ip[INET6_ADDRSTRLEN - 1] = '\0';
 
     *port = atoi(colon + 1);
+
+    return 0;
 }
 
-void string_args_to_sync_info(char *source_string, char *target_string, SyncInfo *sync_info)
+int string_args_to_sync_info(char *source_string, char *target_string, SyncInfo *sync_info)
 {
-    parse_arg_string(source_string, sync_info->source_dir, sync_info->source_ip, &sync_info->source_port);
-    parse_arg_string(target_string, sync_info->target_dir, sync_info->target_ip, &sync_info->target_port);
+    int result1 = parse_arg_string(source_string, sync_info->source_dir, sync_info->source_ip, &sync_info->source_port);
+    int result2 = parse_arg_string(target_string, sync_info->target_dir, sync_info->target_ip, &sync_info->target_port);
+
+    if (result1 != 0 || result2 != 0)
+        return -1;
+    return 0;
 }
 
 void queue_operation(OperationInfo op)
@@ -418,7 +426,7 @@ void queue_operation(OperationInfo op)
     char buffer[BUF_SIZE];
     strcpy(buffer, "list ");
     strcat(buffer, op.sync_info.source_dir);
-    DEBUG_PRINT("2. SENT FOR SOURCE DIRECTORY %s: %s", op.sync_info.source_dir ,buffer);
+    DEBUG_PRINT("2. SENT FOR SOURCE DIRECTORY %s: %s", op.sync_info.source_dir, buffer);
     client_socket_send(source_sock, buffer);
 
     char line[FILENAME_MAX];
