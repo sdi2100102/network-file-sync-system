@@ -67,10 +67,9 @@ void check_commands(ManagerInfo *manager_info);
 void execute_command(ManagerInfo *manager_info);
 int server_socket_init(int port);
 void console_remote_read(ManagerInfo *manager_info);
-// void queue_operation(ManagerInfo *manager_info, OperationInfo operation_info);
 int string_args_to_sync_info(char *source_string, char *target_string, SyncInfo *sync_info);
-
-void queue_operation(OperationInfo operation_info);
+void queue_operation(ManagerInfo *manager_info, OperationInfo operation_info);
+void log_file_add(ManagerInfo *manager_info, OperationInfo op);
 
 int main(int argc, char *argv[])
 {
@@ -188,7 +187,10 @@ void read_config(ManagerInfo *manager_info)
     while (fscanf(manager_info->config_file, "%s %s", source_string, target_string) == 2) // read config entries
     {
         if (string_args_to_sync_info(source_string, target_string, &sync_info) == -1)
+        {
+            log_end_message(manager_info->console_socket);
             continue; // ignore entries with incorrect format
+        }
         nfs_add(manager_info, sync_info);
     }
 
@@ -205,8 +207,10 @@ void nfs_add(ManagerInfo *manager_info, SyncInfo sync_info)
     if (sims_exists(manager_info->sync_info_mem_store, sync_info)) // directory already monitored
     {
         /* invalid result to stdout only */
-        snprintf(message, sizeof(message), "Already in queue: %.*s\n",
-                 (int)strlen(sync_info.source_dir), sync_info.source_dir);
+        snprintf(message, sizeof(message), "Already in queue: %.*s@%.*s:%d\n",
+                 (int)strlen(sync_info.source_dir), sync_info.source_dir,
+                 (int)strlen(sync_info.source_ip), sync_info.source_ip,
+                 sync_info.source_port);
         log_timed_stdout(message);
         log_timed_fd(message, manager_info->console_socket);
         log_end_message(manager_info->console_socket);
@@ -224,28 +228,9 @@ void nfs_add(ManagerInfo *manager_info, SyncInfo sync_info)
     sims_add(manager_info->sync_info_mem_store, sync_info); // add to sync_info_mem_store
 
     OperationInfo operation_info = {sync_info, "ALL", "FULL"};
-    queue_operation(operation_info);
+    queue_operation(manager_info, operation_info);
 
     sims_remove(manager_info->sync_info_mem_store, sync_info.source_dir); // todo change this
-
-    /* log to stdout, logfile and console */
-    snprintf(message, sizeof(message), "Added directory: %.*s -> %.*s\n",
-             (int)strlen(sync_info.source_dir), sync_info.source_dir,
-             (int)strlen(sync_info.target_dir), sync_info.target_dir);
-    log_timed_stdout(message);
-    log_timed_fd(message, manager_info->logfile_fd);
-    if (!sync_info.from_config)
-        log_timed_fd(message, manager_info->console_socket); // only send to console if not added from config
-
-    snprintf(message, sizeof(message), "Monitoring started for %.*s\n",
-             (int)strlen(sync_info.source_dir), sync_info.source_dir);
-    log_timed_stdout(message);
-    log_timed_fd(message, manager_info->logfile_fd);
-    if (!sync_info.from_config)
-    {
-        log_timed_fd(message, manager_info->console_socket);
-        log_end_message(manager_info->console_socket);
-    }
 }
 
 void nfs_cancel(ManagerInfo *manager_info, SyncInfo sync_info)
@@ -305,7 +290,10 @@ void execute_command(ManagerInfo *manager_info)
     {
     case ADD:
         if (string_args_to_sync_info(manager_info->command.arguments[1], manager_info->command.arguments[2], &sync_info) == -1)
+        {
+            log_end_message(manager_info->console_socket);
             return; // ignore arguments with incorrect format
+        }
         nfs_add(manager_info, sync_info);
         break;
     case CANCEL:
@@ -418,7 +406,7 @@ int string_args_to_sync_info(char *source_string, char *target_string, SyncInfo 
     return 0;
 }
 
-void queue_operation(OperationInfo op)
+void queue_operation(ManagerInfo *manager_info, OperationInfo op)
 {
     int source_sock = client_socket_init(op.sync_info.source_ip, op.sync_info.source_port);
 
@@ -429,6 +417,7 @@ void queue_operation(OperationInfo op)
     DEBUG_PRINT("2. SENT FOR SOURCE DIRECTORY %s: %s", op.sync_info.source_dir, buffer);
     client_socket_send(source_sock, buffer);
 
+    /* List directory contents */
     char line[FILENAME_MAX];
     int bytes_read, i, line_pos = 0;
     int done = 0;
@@ -456,6 +445,8 @@ void queue_operation(OperationInfo op)
                 strcpy(op.file_name, line);
                 place_operation(op);
 
+                log_file_add(manager_info, op);
+
                 line_pos = 0; // Reset for next line
             }
             else
@@ -469,4 +460,28 @@ void queue_operation(OperationInfo op)
         perror_exit("read source socket");
 
     close(source_sock);
+
+    if (!op.sync_info.from_config)
+        log_end_message(manager_info->console_socket);
+}
+
+void log_file_add(ManagerInfo *manager_info, OperationInfo op)
+{
+    char message[BUF_SIZE];
+
+    SyncInfo sync_info = op.sync_info;
+    /* log to stdout, logfile and console */
+    snprintf(message, sizeof(message), "Added file: %.*s/%.*s@%.*s:%d -> %.*s/%.*s@%.*s:%d\n",
+             (int)strlen(sync_info.source_dir), sync_info.source_dir,
+             (int)strlen(op.file_name), op.file_name,
+             (int)strlen(sync_info.source_ip), sync_info.source_ip,
+             sync_info.source_port,
+             (int)strlen(sync_info.target_dir), sync_info.target_dir,
+             (int)strlen(op.file_name), op.file_name,
+             (int)strlen(sync_info.target_ip), sync_info.target_ip,
+             sync_info.target_port);
+    log_timed_stdout(message);
+    log_timed_fd(message, manager_info->logfile_fd);
+    if (!sync_info.from_config)
+        log_timed_fd(message, manager_info->console_socket); // only send to console if not added from config
 }
