@@ -155,7 +155,7 @@ void command_pull(char *path_name, int manager_socket)
     /* Send file size */
     send_file_size(manager_socket, file_size);
 
-    DEBUG_PRINT("3. Send file size %d", file_size);
+    DEBUG_PRINT("3. Sent file size %d", file_size);
 
     /* Receive ACK */
     recieve_ack(manager_socket);

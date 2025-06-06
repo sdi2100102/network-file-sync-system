@@ -9,8 +9,8 @@ all: nfs_manager nfs_console source_client target_client
 MANAGER = nfs_manager
 CONSOLE = nfs_console
 
-SOURCE_CLIENT = client_test/source/nfs_client
-TARGET_CLIENT = client_test/target/nfs_client
+SOURCE_CLIENT = client_test/source1/nfs_client
+TARGET_CLIENT = client_test/target1/nfs_client
 
 MANAGER_OBJS = nfs_manager.o utils.o nfs_log.o sync_info_mem_store.o command.o nfs_workers.o exec_report.o
 CONSOLE_OBJS = nfs_console.o utils.o nfs_log.o command.o
@@ -45,7 +45,7 @@ target_client: nfs_client.o
 	$(CC) $(CFLAGS) nfs_client.o $(LDFLAGS) -o ${TARGET_CLIENT}
 
 source_run: source_client
-	cd client_test/source; ./nfs_client -p 8001
+	cd client_test/source1; ./nfs_client -p 8001
 
 target_run: target_client
-	cd client_test/target; ./nfs_client -p 8002
+	cd client_test/target1; ./nfs_client -p 8002
