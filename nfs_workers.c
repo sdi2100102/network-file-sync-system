@@ -40,22 +40,17 @@ static OperationQueue queue;
 static pthread_t *worker_threads;
 static int worker_count;
 
-void perform_operation(OperationInfo op);
 static void *worker_function(void *arg);
 void place_operation(OperationInfo op);
-void pull_push(OperationInfo op);
-void send_pull_command(OperationInfo op, int source_sock);
-int read_file_size(int source_sock);
-void recieve_ack(int manager_socket);
-void send_push_command(OperationInfo op, int target_sock);
+void perform_operation(OperationInfo op);
+int send_pull_command(ExecReport *report, OperationInfo op, int source_sock);
+int read_file_size(ExecReport *report, int source_sock);
+int recieve_ack(ExecReport *report, int manager_socket);
+int send_push_command(ExecReport *report, OperationInfo op, int target_sock);
 void send_file_size(int manager_socket, int file_size);
 void worker_error(ExecReport *exec_report, char *error_message);
 int worker_to_client_socket_init(char *server_ip, int server_port);
-
-void perform_operation(OperationInfo op)
-{
-    pull_push(op);
-}
+int worker_send_string(int socket, const char *string);
 
 static void *worker_function(void *arg)
 {
@@ -176,10 +171,11 @@ void remove_operations_by_source_dir(const char *source_dir)
     pthread_mutex_unlock(&queue.mutex);
 }
 
-void pull_push(OperationInfo op) // todo change for perform_operation or chunk transfer
+void perform_operation(OperationInfo op)
 {
     /* Initialize exec reports */
     ExecReport pull_report = initialize_exec_report(op, pthread_self(), "PULL");
+    ExecReport push_report = initialize_exec_report(op, pthread_self(), "PUSH");
 
     /* Open sockets */
     int source_sock = worker_to_client_socket_init(op.sync_info.source_ip, op.sync_info.source_port);
@@ -189,29 +185,43 @@ void pull_push(OperationInfo op) // todo change for perform_operation or chunk t
         return;
     }
     int target_sock = worker_to_client_socket_init(op.sync_info.target_ip, op.sync_info.target_port);
+    if (target_sock < 0)
+    {
+        worker_error(&push_report, "Failed to connect to target");
+        return;
+    }
 
     /* Write to source: pull <path> */
-    send_pull_command(op, source_sock);
+    if (send_pull_command(&pull_report, op, source_sock) < 0)
+        return;
 
     DEBUG_PRINT("5. pull command sent | thread id: %ld | sock fd %d", pthread_self(), source_sock);
 
     /* Read from source: <chunk_size> */
-    int file_size = read_file_size(source_sock);
+    int file_size = read_file_size(&pull_report, source_sock);
+    if (file_size < 0)
+        return;
 
     DEBUG_PRINT("6. file size from source: %d | thread id: %ld | sock fd %d", file_size, pthread_self(), source_sock);
 
     /* Write to source: ACK */
-    client_socket_send(source_sock, "ACK");
+    if (worker_send_string(source_sock, "ACK") < 0)
+    {
+        worker_error(&pull_report, "Failed to send ACK to source");
+        return;
+    }
 
     DEBUG_PRINT("7. ack sent to source | thread id: %ld | sock fd %d", pthread_self(), source_sock);
 
     /* Write to target: push <path> */
-    send_push_command(op, target_sock);
+    if (send_push_command(&push_report, op, target_sock) < 0)
+        return;
 
     DEBUG_PRINT("8. push command sent:\n");
 
     /* Read from target: ACK */
-    recieve_ack(target_sock);
+    if (recieve_ack(&push_report, target_sock) < 0)
+        return;
 
     DEBUG_PRINT("9. ack recieved from target | thread id: %ld | sock fd %d", pthread_self(), target_sock);
 
@@ -221,7 +231,8 @@ void pull_push(OperationInfo op) // todo change for perform_operation or chunk t
     DEBUG_PRINT("10. file size sent: %d\n", file_size);
 
     /* Read from target: ACK */
-    recieve_ack(target_sock);
+    if (recieve_ack(&push_report, target_sock) < 0)
+        return;
 
     DEBUG_PRINT("11. ack recieved from target | thread id: %ld | sock fd %d", pthread_self(), target_sock);
 
@@ -232,8 +243,16 @@ void pull_push(OperationInfo op) // todo change for perform_operation or chunk t
     {
         int bytes_read = read(source_sock, buf, bytes_to_read);
         if (bytes_read == -1)
-            perror_exit("read");
-        client_socket_send(target_sock, buf);
+        {
+            worker_error(&pull_report, "Failed to read from source");
+            return;
+        }
+
+        if (write(target_sock, buf, bytes_read) == -1)
+        {
+            worker_error(&push_report, "Failed to write to target");
+            return;
+        }
         bytes_to_read -= bytes_read;
 
         DEBUG_PRINT("12. bytes read: %d | bytes to read: %d | thread id: %ld | sock fd %d", bytes_read, bytes_to_read, pthread_self(), target_sock);
@@ -241,53 +260,77 @@ void pull_push(OperationInfo op) // todo change for perform_operation or chunk t
 
     /* Close sockets */
     if (close(target_sock) == -1)
-        perror_exit("close");
+    {
+        worker_error(&push_report, "Failed to close target socket");
+        return;
+    }
     if (close(source_sock) == -1)
-        perror_exit("close");
+    {
+        worker_error(&pull_report, "Failed to close source socket");
+        return;
+    }
 
     /* Finish exec reports */
     complete_exec_report_success(&pull_report, file_size);
+    complete_exec_report_success(&push_report, file_size);
 }
 
-void send_pull_command(OperationInfo op, int source_sock)
+int send_pull_command(ExecReport *report, OperationInfo op, int source_sock)
 {
     char buf[BUF_SIZE];
     snprintf(buf, BUF_SIZE, "pull %.*s/%.*s",
              (int)strlen(op.sync_info.source_dir), op.sync_info.source_dir,
              (int)strlen(op.file_name), op.file_name);
-    client_socket_send(source_sock, buf);
+    if (worker_send_string(source_sock, buf) < 0)
+    {
+        worker_error(report, "Failed to send pull command");
+        return -1;
+    }
+    return 0;
 }
 
-int read_file_size(int source_sock)
+int read_file_size(ExecReport *report, int source_sock)
 {
     char buf[BUF_SIZE];
     int bytes_read = read(source_sock, buf, sizeof(buf) - 1);
+    if (bytes_read == -1)
+    {
+        worker_error(report, "Failed to read file size");
+        return -1;
+    }
     buf[bytes_read] = '\0';
     return atoi(buf);
 }
 
-void recieve_ack(int manager_socket)
+int recieve_ack(ExecReport *report, int manager_socket)
 {
     char buf[BUF_SIZE];
     int bytes_read;
     if ((bytes_read = read(manager_socket, buf, strlen("ACK"))) == -1)
-        perror_exit("read socket");
+    {
+        worker_error(report, "Failed to read ACK");
+        return -1;
+    }
     buf[bytes_read] = '\0';
     if (strcmp(buf, "ACK") != 0)
     {
-        printf("Instead of ack, Recieved (in %d bytes): %s", bytes_read, buf); // todo remove
-        perror_exit("ACK not received");
+        worker_error(report, "ACK not received");
+        return -1;
     }
 }
 
-void send_push_command(OperationInfo op, int target_sock)
+int send_push_command(ExecReport *report, OperationInfo op, int target_sock)
 {
-
     char buf[BUF_SIZE];
     snprintf(buf, BUF_SIZE, "push %.*s/%.*s ",
              (int)strlen(op.sync_info.target_dir), op.sync_info.target_dir,
              (int)strlen(op.file_name), op.file_name);
-    client_socket_send(target_sock, buf);
+    if (worker_send_string(target_sock, buf) < 0)
+    {
+        worker_error(report, "Failed to send push command");
+        return -1;
+    }
+    return 0;
 }
 
 void send_file_size(int manager_socket, int file_size)
@@ -333,4 +376,14 @@ void worker_error(ExecReport *exec_report, char *error_message)
     /* Log message */
     complete_exec_report_failure(exec_report, strerror(errno));
     return;
+}
+
+int worker_send_string(int sock, const char *string)
+{
+    ssize_t bytes_sent = write(sock, string, strlen(string));
+    if (bytes_sent == -1)
+    {
+        return -1;
+    }
+    return 0;
 }
