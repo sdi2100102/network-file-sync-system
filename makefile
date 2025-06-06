@@ -30,17 +30,11 @@ manager_run:
 console_run:
 	./$(CONSOLE) -l console_log_file.txt -h 127.0.0.1 -p 8000
 
-manager_full: # todo remove
-	$(MAKE)
-	$(MAKE) manager_run
-
 debug:
 	$(MAKE) clean
 	$(MAKE) CFLAGS='-g -DDEBUG'
 
-manager_debug:
-	$(MAKE) CFLAGS='-g -DDEBUG'
-	$(MAKE) manager_run
+# CLIENTS:
 
 clients: source_client target_client
 

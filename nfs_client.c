@@ -21,8 +21,6 @@
 
 #define perror2(s, e) fprintf(stderr, "%s: %s\n", s, strerror(e))
 
-// todo: fix bug where it needs sleep(1) for reading or writing all data
-
 void *client_run(void *arg);
 int read_arguments(int argc, char *argv[]);
 void command_list(char *source_dirint, int manager_socket);
@@ -33,7 +31,6 @@ void send_string(int manager_socket, char string[]);
 void send_error(int manager_socket, char string[]);
 void pull_error(int manager_socket, char message[]);
 void push_error(int manager_socket, char message[]);
-void split_into_4(char *str, char **p1, char **p2, char **p3, char **p4);
 void perror_exit(char *message);
 void perror_exit2(char *message, int error);
 int count_file_size(int source_fd);
@@ -46,7 +43,7 @@ int main(int argc, char *argv[])
 {
     int manager_port = read_arguments(argc, argv);
     int listening_socket = listening_socket_init(manager_port);
-    while (1) // todo add threads
+    while (1)
     {
         /* Accept connection */
         int sock;
@@ -86,7 +83,7 @@ void *client_run(void *arg)
     char *command_type = strtok(command_string, " \n");
     char *path_name = strtok(NULL, " \n");
     if (path_name == NULL)
-        perror_exit2("command parsing", errno); // todo fix
+        perror_exit2("command parsing", errno);
 
     /* Execute command */
     if (strcmp(command_type, "list") == 0)
@@ -102,12 +99,12 @@ void *client_run(void *arg)
     else if (strcmp(command_type, "push") == 0)
     {
         DEBUG_PRINT("2. Command: push %s", path_name);
-        command_push(path_name, manager_socket);    // todo fix
+        command_push(path_name, manager_socket);
     }
 
     if (close(manager_socket) == -1)
         perror_exit2("close", errno);
-    return NULL; // todo replace with thread exit
+    return NULL;
 }
 
 void command_list(char *source_dir_name, int manager_socket)
@@ -292,63 +289,6 @@ void push_error(int manager_socket, char message[])
     perror_exit(message);
 }
 
-void split_into_4(char *str, char **p1, char **p2, char **p3, char **p4)
-{
-    char *s = str;
-    *p1 = *p2 = *p3 = *p4 = NULL;
-
-    while (*s && isspace((unsigned char)*s))
-        s++;
-
-    if (!*s)
-        return; // empty string
-
-    // first word
-    *p1 = s;
-    while (*s && !isspace((unsigned char)*s))
-        s++;
-    if (!*s)
-        return;
-
-    *s++ = '\0';
-
-    while (*s && isspace((unsigned char)*s))
-        s++;
-    if (!*s)
-        return;
-
-    // second word
-    *p2 = s;
-    while (*s && !isspace((unsigned char)*s))
-        s++;
-    if (!*s)
-        return;
-
-    *s++ = '\0';
-
-    while (*s && isspace((unsigned char)*s))
-        s++;
-    if (!*s)
-        return;
-
-    // third word
-    *p3 = s;
-    while (*s && !isspace((unsigned char)*s))
-        s++;
-    if (!*s)
-        return;
-
-    *s++ = '\0';
-
-    while (*s && isspace((unsigned char)*s))
-        s++;
-    if (!*s)
-        return;
-
-    // the rest of the string
-    *p4 = s;
-}
-
 void perror_exit(char *message)
 {
     perror(message);
@@ -388,7 +328,7 @@ void read_command_string(char command_string[], int manager_socket)
 
     if (bytes_read == 0)
     {
-        printf("Connection closed | manager socket: %d\n", manager_socket); // todo remove
+        DEBUG_PRINT("Connection closed | manager socket: %d", manager_socket);
         close(manager_socket);
         perror_exit2("read manager command", errno);
     }
@@ -403,7 +343,7 @@ void recieve_ack(int manager_socket)
     buf[bytes_read] = '\0';
     if (strcmp(buf, "ACK") != 0)
     {
-        printf("Instead of ack, Recieved (in %d bytes): %s\n", bytes_read, buf); // todo remove
+        DEBUG_PRINT("Instead of ack, Recieved (in %d bytes): %s", bytes_read, buf);
         perror_exit("ACK not received");
     }
 }

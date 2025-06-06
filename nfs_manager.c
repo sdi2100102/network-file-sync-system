@@ -229,7 +229,7 @@ void nfs_add(ManagerInfo *manager_info, SyncInfo sync_info)
     OperationInfo operation_info = {.sync_info = sync_info, .logfile_fd = manager_info->logfile_fd};
     queue_operation(manager_info, operation_info);
 
-    sims_remove(manager_info->sync_info_mem_store, sync_info.source_dir); // todo change this
+    sims_remove(manager_info->sync_info_mem_store, sync_info.source_dir);
 }
 
 void nfs_cancel(ManagerInfo *manager_info, SyncInfo sync_info)
