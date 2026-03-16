@@ -49,7 +49,7 @@ jobs:
         with:
           command: cves,recommendations,compare,sbom
           image: ${{ github.event.inputs.docker_image }}
-          #only-severities: critical,high # only show critical and high CVEs
+          only-severities: critical,high # only show critical and high CVEs
           #only-fixed: true # filter to fixed CVEs
           exit-code: false  # fail or not based on CVEs found?
           sarif-file: sca_scout.sarif
