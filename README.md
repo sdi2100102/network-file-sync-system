@@ -1,6 +1,6 @@
 # Network file synchronization system
 
-Porject implements a distributed file synchronization service in C using TCP sockets and multithreading. A central nfs_manager coordinates sync tasks between source and target nfs_client instances, while nfs_console provides an interactive CLI for commands like add/cancel/shutdown. The manager discovers files on the source, queues transfer operations, and worker threads execute pull/push file-copy pipelines with logging and execution reports.
+Project implements a distributed file synchronization service in C using TCP sockets and multithreading. A central nfs_manager coordinates sync tasks between source and target nfs_client instances, while nfs_console provides an interactive CLI for commands like add/cancel/shutdown. The manager discovers files on the source, queues transfer operations, and worker threads execute pull/push file-copy pipelines with logging and execution reports.
 
 ## Compilation and Execution Instructions
 
